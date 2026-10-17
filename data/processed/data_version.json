@@ -1,0 +1,17 @@
+{
+    "data_version_short": "128979137b46",
+    "parquet_sha256": "128979137b4615d02648df449f611ca4109538a9a0ead947d03d91ed0dc7f65a",
+    "date_range": "2022-10_a_2026-09",
+    "months_processed": 48,
+    "first_file": "datos_abiertos_2022_10.csv",
+    "last_file": "datos_abiertos_2026_09.csv",
+    "rows_read_raw": 17927033,
+    "rows_written_clean": 17036839,
+    "invalid_birth_years_masked": 15859,
+    "genero_null_to_na": 114163,
+    "genero_empty_to_na": 2097,
+    "short_trips_removed_lt_121s": 889481,
+    "exact_duplicates_removed": 713,
+    "stations_in_nomenclature_catalog": 484,
+    "active_stations_in_trips": 473
+}

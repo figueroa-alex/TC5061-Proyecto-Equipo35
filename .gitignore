@@ -1,5 +1,18 @@
-# Data
-/data/
+# Datos crudos, intermedios y Parquet pesado (solo permitimos data_version.json)
+/data/raw/*
+!/data/raw/.gitkeep
+/data/interim/*
+!/data/interim/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+!/data/processed/data_version.json
+*.parquet
+*.csv
+
+# Archivos locales de MLFlow
+mlruns/
+mlartifacts/
+mlflow.db
 
 # Mac OS-specific storage files
 .DS_Store
@@ -145,6 +158,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+.venv/
 .env
 .venv
 env/
