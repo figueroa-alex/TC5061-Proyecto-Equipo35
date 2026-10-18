@@ -83,7 +83,7 @@ mako==1.4.3
 markupsafe==3.0.4
 matplotlib==3.11.2
 matplotlib-inline==0.2.2
--e file:///Users/alexfigueroa/_Maestria%20IA%20TEC%20MNA/Periodos/08-2026-Septiembre-Diciembre/01-TC5061.10-Operaciones%20de%20aprendizaje%20automa%CC%81tico/proyecto-mibici/TC5061-Proyecto-Equipo35
+-e .
 mistune==3.3.4
 mlflow==3.17.1
 mlflow-skinny==3.17.1
