@@ -9,10 +9,17 @@
 *.parquet
 *.csv
 
+# Modelos serializados locales (no se entregan en Git)
+/models/*
+!/models/.gitkeep
+*.pkl
+*.joblib
+
 # Archivos locales de MLFlow
 mlruns/
 mlartifacts/
 mlflow.db
+mlflow.db-journal
 
 # Mac OS-specific storage files
 .DS_Store

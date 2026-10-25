@@ -80,3 +80,22 @@ export PRINT_HELP_PYSCRIPT
 
 help:
 	@$(PYTHON_INTERPRETER) -c "${PRINT_HELP_PYSCRIPT}" < $(MAKEFILE_LIST)
+
+#################################################################################
+# COMANDOS DE MLFLOW PROJECT Y SERVIDOR DE TRACKING (EQUIPO 35)                 #
+#################################################################################
+
+## Levantar servidor local de MLflow respaldado por SQLite en el puerto 5000
+.PHONY: mlflow-server
+mlflow-server:
+	$(PYTHON_INTERPRETER) -m mlflow server --backend-store-uri sqlite:///mlflow.db --port 5000
+
+## Ejecutar ingesta reproducible mediante MLflow Project
+.PHONY: mlflow-ingest
+mlflow-ingest:
+	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 MLFLOW_EXPERIMENT_NAME=mibici-equipo35 $(PYTHON_INTERPRETER) -m mlflow run . -e ingest --env-manager=local
+
+## Registrar modelos campeones en Model Registry y verificar carga con @champion
+.PHONY: mlflow-register
+mlflow-register:
+	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 MLFLOW_EXPERIMENT_NAME=mibici-equipo35 $(PYTHON_INTERPRETER) -m mlflow run . -e register --env-manager=local -P action=register_and_verify
