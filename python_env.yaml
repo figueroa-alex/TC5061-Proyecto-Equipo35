@@ -1,0 +1,9 @@
+# Entorno de Python para el MLflow Project (Equipo 35)
+# Usa las mismas versiones fijas declaradas en requirements.txt
+python: "3.14.3"
+build_dependencies:
+  - pip==26.2.1
+  - setuptools
+  - wheel
+dependencies:
+  - -r requirements.txt
