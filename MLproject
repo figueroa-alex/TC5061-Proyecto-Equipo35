@@ -1,0 +1,40 @@
+name: mibici-equipo35
+
+python_env: python_env.yaml
+
+entry_points:
+  # Punto de entrada 1: Ingesta, limpieza y versionado de datos
+  ingest:
+    command: "python -m mibici.dataset"
+
+  # Punto de entrada 2: Entrenamiento parametrizado para P1, P2 y P3
+  # Nota: Los valores por defecto dicen "from_config" para que train.py los tome
+  # directamente de mibici/config.py sin repetir rutas, fechas, semillas ni números.
+  train:
+    parameters:
+      question: {type: string, default: "from_config"}
+      stage: {type: string, default: "from_config"}
+      model: {type: string, default: "from_config"}
+      alpha: {type: string, default: "from_config"}
+      c_reg: {type: string, default: "from_config"}
+      n_estimators: {type: string, default: "from_config"}
+      max_depth: {type: string, default: "from_config"}
+      learning_rate: {type: string, default: "from_config"}
+      n_clusters: {type: string, default: "from_config"}
+    command: >
+      python -m mibici.modeling.train
+      --question {question}
+      --stage {stage}
+      --model {model}
+      --alpha {alpha}
+      --c_reg {c_reg}
+      --n_estimators {n_estimators}
+      --max_depth {max_depth}
+      --learning_rate {learning_rate}
+      --n_clusters {n_clusters}
+
+  # Punto de entrada 3: Registro de los mejores modelos en el Model Registry y prueba de carga
+  register:
+    parameters:
+      action: {type: string, default: "register_and_verify"}
+    command: "python -m mibici.modeling.predict --action {action}"
