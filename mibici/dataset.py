@@ -424,6 +424,33 @@ def main() -> None:
 
     reporte = construir_parquet_y_versionar(rutas_csv, ruta_nomenclatura)
 
+    # Si se ejecuta desde 'mlflow run . -e ingest', nombramos la corrida y subimos el manifiesto
+    import os
+    import mlflow
+    if os.environ.get("MLFLOW_RUN_ID"):
+        mlflow.set_tag("mlflow.runName", "Ingesta_Datos_MiBici")
+        mlflow.set_tags(
+            {
+                "team": config.TEAM_TAG,
+                "stage_of_work": "ingest",
+                "data_version": reporte["data_version_short"],
+            }
+        )
+        mlflow.log_params(
+            {
+                "date_range": reporte["date_range"],
+                "months_processed": reporte["months_processed"],
+                "data_version": reporte["data_version_short"],
+            }
+        )
+        mlflow.log_metrics(
+            {
+                "rows_read_raw": float(reporte["rows_read_raw"]),
+                "rows_written_clean": float(reporte["rows_written_clean"]),
+            }
+        )
+        mlflow.log_artifact(str(config.DATA_VERSION_FILE), artifact_path="data")
+
     print("\n" + "=" * 60)
     print("RESUMEN DE INGESTA Y VERSIONADO DE DATOS (EQUIPO 35)")
     print("=" * 60)
