@@ -8,12 +8,17 @@ archivo tenga valores escritos de forma fija (hardcodeados).
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # ==============================================================================
-# 1. RUTAS PRINCIPALES DEL PROYECTO
+# 1. RUTAS PRINCIPALES DEL PROYECTO Y CARGA DE VARIABLES DE ENTORNO (.env)
 # ==============================================================================
 # Obtenemos la carpeta raíz del repositorio (dos niveles arriba de este archivo)
 PROJ_ROOT = Path(__file__).resolve().parents[1]
+
+# Cargamos las variables de entorno desde el archivo .env local si existe.
+# El archivo .env está excluido en .gitignore para no exponer configuraciones locales.
+load_dotenv(PROJ_ROOT / ".env")
 
 # Carpetas estándar de datos según Cookiecutter Data Science
 DATA_DIR = PROJ_ROOT / "data"
@@ -52,11 +57,16 @@ FIGURES_DIR = REPORTS_DIR / "figures"
 # ==============================================================================
 # 2. PARÁMETROS DE DESCARGA Y RANGO DE FECHAS DEL ESTUDIO
 # ==============================================================================
-# Página oficial de datos abiertos de MiBici (de aquí se descargan los CSV)
-MIBICI_OPEN_DATA_URL = "https://mibici.net/es/datos-abiertos/"
+# Página oficial de datos abiertos de MiBici (configurable por variable de entorno)
+MIBICI_OPEN_DATA_URL = os.getenv(
+    "MIBICI_OPEN_DATA_URL", "https://mibici.net/es/datos-abiertos/"
+)
+
+# Esquemas de URL permitidos por seguridad (evita ataques file:// o esquemas personalizados)
+ALLOWED_URL_SCHEMES = ("https", "http")
 
 # Tiempo máximo de espera (segundos) por cada descarga antes de marcar error
-REQUEST_TIMEOUT_SECONDS = 60
+REQUEST_TIMEOUT_SECONDS = int(os.getenv("MIBICI_REQUEST_TIMEOUT", "60"))
 
 # Rango de fechas seleccionado: Octubre 2022 a Septiembre 2026 (48 meses)
 # Justificación: El 13 de octubre de 2022 se publicó el Acuerdo DIELAG ACU 065/2022
@@ -102,7 +112,10 @@ CSV_CHUNK_SIZE = 100000
 # 4. PARÁMETROS DE PARTICIÓN TEMPORAL, SEMILLA Y PROBLEMA DE NEGOCIO
 # ==============================================================================
 # Semilla aleatoria fija para garantizar reproducibilidad en todo el proyecto
-RANDOM_SEED = 42
+RANDOM_SEED = int(os.getenv("MIBICI_RANDOM_SEED", "42"))
+
+# Modo de carga de datos para pruebas automatizadas ('auto', 'real' o 'synthetic')
+TEST_DATA_MODE = os.getenv("MIBICI_TEST_DATA_MODE", "auto").lower()
 
 # Fechas de corte para la partición estrictamente temporal (sin usar el futuro):
 # - Entrenamiento (Train): Octubre 2022 a Diciembre 2025 (39 meses)
@@ -175,8 +188,8 @@ SEARCH_GRID_P3 = [
 # El servidor guarda todo en una base SQLite (mlflow.db), requisito del Model Registry.
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
 
-# Mismo experimento de la entrega anterior (baselines y nuevas corridas juntos)
-MLFLOW_EXPERIMENT_NAME = "mibici-equipo35"
+# Experimento oficial del equipo (configurable mediante variable de entorno)
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "mibici-equipo35")
 
 # Etiqueta obligatoria de equipo en todas las corridas
 TEAM_TAG = "Equipo35"

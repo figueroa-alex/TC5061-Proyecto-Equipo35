@@ -18,6 +18,30 @@ from mibici import config
 
 
 # ==============================================================================
+# FUNCIÓN 0: VALIDAR ESQUEMA SEGURO DE URL (MITIGACIÓN DE SEGURIDAD BANDIT B310)
+# ==============================================================================
+def validar_url_segura(url: str) -> str:
+    """
+    Verifica que una URL utilice exclusivamente los esquemas permitidos ('https' o 'http')
+    y tenga un dominio (netloc) válido antes de abrirla con urlopen.
+    Bloquea esquemas riesgosos como 'file://', 'ftp://' o 'javascript:'.
+    """
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("La URL proporcionada está vacía o no es texto.")
+
+    url_limpia = url.strip()
+    componentes = urlparse(url_limpia)
+    esquema = componentes.scheme.lower()
+
+    if esquema not in config.ALLOWED_URL_SCHEMES or not componentes.netloc:
+        raise ValueError(
+            f"Esquema de URL no permitido por seguridad: '{url_limpia}'. "
+            f"Solo se permiten esquemas {config.ALLOWED_URL_SCHEMES}."
+        )
+    return url_limpia
+
+
+# ==============================================================================
 # FUNCIÓN 1: CALCULAR HASH SHA-256 Y CONTEO DE FILAS DE UN ARCHIVO
 # ==============================================================================
 def calcular_sha256_archivo(ruta_archivo: Path) -> str:
@@ -94,15 +118,16 @@ def asegurar_archivos_csv() -> tuple[list[Path], Path]:
         ruta_alternativa_nom.replace(ruta_nomenclatura)
 
     if len(archivos_faltantes) > 0 or not ruta_nomenclatura.exists():
+        url_portal = validar_url_segura(config.MIBICI_OPEN_DATA_URL)
         print(
             f"Faltan {len(archivos_faltantes)} archivos CSV de viajes o la nomenclatura. "
-            f"Consultando {config.MIBICI_OPEN_DATA_URL}..."
+            f"Consultando {url_portal}..."
         )
         peticion = Request(
-            config.MIBICI_OPEN_DATA_URL,
+            url_portal,
             headers={"User-Agent": "mibici-csv-downloader/1.0"},
         )
-        with urlopen(peticion, timeout=config.REQUEST_TIMEOUT_SECONDS) as respuesta:
+        with urlopen(peticion, timeout=config.REQUEST_TIMEOUT_SECONDS) as respuesta:  # nosec B310
             codificacion_web = respuesta.headers.get_content_charset() or "utf-8"
             html_pagina = respuesta.read().decode(codificacion_web, errors="replace")
 
@@ -111,14 +136,15 @@ def asegurar_archivos_csv() -> tuple[list[Path], Path]:
         )
         urls_unicas = []
         for enlace in enlaces_encontrados:
-            url_completa = urljoin(
-                config.MIBICI_OPEN_DATA_URL, html.unescape(enlace.strip())
+            url_completa = validar_url_segura(
+                urljoin(url_portal, html.unescape(enlace.strip()))
             )
             if url_completa not in urls_unicas:
                 urls_unicas.append(url_completa)
 
         for url in urls_unicas:
-            nombre_en_url = Path(unquote(urlparse(url).path)).name
+            url_segura = validar_url_segura(url)
+            nombre_en_url = Path(unquote(urlparse(url_segura).path)).name
             coincidencia = patron_nombre.fullmatch(nombre_en_url)
             if coincidencia is None:
                 continue
@@ -141,9 +167,9 @@ def asegurar_archivos_csv() -> tuple[list[Path], Path]:
             ruta_temporal = destino.with_name(destino.name + ".part")
             print(f"Descargando: {nombre_limpio} -> {destino}")
             peticion_archivo = Request(
-                url, headers={"User-Agent": "mibici-csv-downloader/1.0"}
+                url_segura, headers={"User-Agent": "mibici-csv-downloader/1.0"}
             )
-            with urlopen(
+            with urlopen(  # nosec B310
                 peticion_archivo, timeout=config.REQUEST_TIMEOUT_SECONDS
             ) as resp_csv, open(ruta_temporal, "wb") as archivo_salida:
                 while True:
@@ -163,7 +189,7 @@ def asegurar_archivos_csv() -> tuple[list[Path], Path]:
 
 
 # ==============================================================================
-# FUNCIÓN 3: DETECTAR CODIFICACIÓN Y NORMALIZAR FECHAS DE UN BLOQUE (CHUNK)
+# FUNCIÓN 3: DETECTAR CODIFICACIÓN, NORMALIZAR FECHAS Y LIMPIAR UN BLOQUE
 # ==============================================================================
 def detectar_codificacion(ruta_csv: Path) -> str:
     """
@@ -204,6 +230,92 @@ def convertir_columna_fecha(
         )
 
 
+def limpiar_bloque_viajes(
+    bloque: pd.DataFrame, ruta_csv: Path = Path("bloque_memoria.csv")
+) -> tuple[pd.DataFrame, dict]:
+    """
+    Aplica las reglas oficiales de limpieza de MiBici a un bloque (DataFrame) de viajes:
+      1. Convierte columnas de IDs y año de nacimiento a entero anulable (Int64).
+      2. Enmascara como pd.NA años de nacimiento fuera de [MIN_BIRTH_YEAR, MAX_BIRTH_YEAR].
+      3. Homologa 'NULL' y cadenas vacías en Genero a pd.NA.
+      4. Convierte fechas de inicio y fin a datetime64.
+      5. Elimina viajes cortos con duración menor a MIN_TRIP_DURATION_SECONDS (121 s).
+      6. Elimina registros duplicados exactos.
+    Devuelve el DataFrame limpio y un diccionario con los conteos de auditoría.
+    """
+    if bloque.empty:
+        df_vacio = pd.DataFrame(columns=config.TRIP_COLUMNS)
+        estadisticas_vacias = {
+            "filas_leidas": 0,
+            "filas_escritas": 0,
+            "anios_invalidos": 0,
+            "genero_null": 0,
+            "genero_vacio": 0,
+            "viajes_cortos": 0,
+            "duplicados": 0,
+        }
+        return df_vacio, estadisticas_vacias
+
+    df = bloque.copy()
+    filas_leidas = len(df)
+
+    anio_original_txt = df["Año_de_nacimiento"].astype("string").str.strip()
+    columnas_enteras = [
+        "Viaje_Id",
+        "Usuario_Id",
+        "Año_de_nacimiento",
+        "Origen_Id",
+        "Destino_Id",
+    ]
+    for col in columnas_enteras:
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+    anio_num = df["Año_de_nacimiento"]
+    tenia_dato_anio = ~anio_original_txt.isin(["", "NULL"]) & anio_original_txt.notna()
+    es_anio_invalido = tenia_dato_anio & (
+        anio_num.isna()
+        | (anio_num < config.MIN_BIRTH_YEAR)
+        | (anio_num > config.MAX_BIRTH_YEAR)
+    )
+    anios_invalidos = int(es_anio_invalido.sum())
+    df["Año_de_nacimiento"] = anio_num.mask(
+        (anio_num < config.MIN_BIRTH_YEAR) | (anio_num > config.MAX_BIRTH_YEAR)
+    )
+
+    genero_limpio = df["Genero"].astype("string").str.strip()
+    genero_null = int((genero_limpio == "NULL").sum())
+    genero_vacio = int((genero_limpio == "").sum())
+    df["Genero"] = genero_limpio.replace({"NULL": pd.NA, "": pd.NA})
+
+    df["Inicio_del_viaje"] = convertir_columna_fecha(
+        df["Inicio_del_viaje"], "Inicio_del_viaje", ruta_csv
+    )
+    df["Fin_del_viaje"] = convertir_columna_fecha(
+        df["Fin_del_viaje"], "Fin_del_viaje", ruta_csv
+    )
+
+    duracion_seg = (df["Fin_del_viaje"] - df["Inicio_del_viaje"]).dt.total_seconds()
+    es_viaje_corto = duracion_seg.isna() | (
+        duracion_seg < config.MIN_TRIP_DURATION_SECONDS
+    )
+    viajes_cortos = int(es_viaje_corto.sum())
+
+    df_filtrado = df.loc[~es_viaje_corto, config.TRIP_COLUMNS]
+    df_sin_duplicados = df_filtrado.drop_duplicates().reset_index(drop=True)
+    duplicados = len(df_filtrado) - len(df_sin_duplicados)
+
+    estadisticas = {
+        "filas_leidas": filas_leidas,
+        "filas_escritas": len(df_sin_duplicados),
+        "anios_invalidos": anios_invalidos,
+        "genero_null": genero_null,
+        "genero_vacio": genero_vacio,
+        "viajes_cortos": viajes_cortos,
+        "duplicados": duplicados,
+    }
+    return df_sin_duplicados, estadisticas
+
+
 # ==============================================================================
 # FUNCIÓN 4: LIMPIAR CADA ARCHIVO CSV Y GUARDAR EN UN PARQUET CONSOLIDADO
 # ==============================================================================
@@ -216,8 +328,6 @@ def construir_parquet_y_versionar(
     Después, genera el manifiesto data_version.json incluyendo el hash SHA-256
     y el número de registros de cada archivo individual y del Parquet final.
     """
-    # Si ya tenemos el Parquet y un manifiesto previo con los conteos de limpieza,
-    # reutilizamos los conteos de limpieza para no tardar minutos reconstruyendo el Parquet.
     reconstruir_parquet = not config.PARQUET_FILE.exists()
     datos_previos = {}
     if config.DATA_VERSION_FILE.exists():
@@ -263,59 +373,16 @@ def construir_parquet_y_versionar(
                 )
 
                 for bloque in lector_bloques:
-                    total_filas_leidas += len(bloque)
-                    anio_original_txt = (
-                        bloque["Año_de_nacimiento"].astype("string").str.strip()
+                    bloque_sin_duplicados, stats = limpiar_bloque_viajes(
+                        bloque, ruta_csv
                     )
-                    columnas_enteras = [
-                        "Viaje_Id",
-                        "Usuario_Id",
-                        "Año_de_nacimiento",
-                        "Origen_Id",
-                        "Destino_Id",
-                    ]
-                    for col in columnas_enteras:
-                        bloque[col] = pd.to_numeric(
-                            bloque[col], errors="coerce"
-                        ).astype("Int64")
-
-                    anio_num = bloque["Año_de_nacimiento"]
-                    tenia_dato_anio = ~anio_original_txt.isin(["", "NULL"])
-                    es_anio_invalido = tenia_dato_anio & (
-                        anio_num.isna()
-                        | (anio_num < config.MIN_BIRTH_YEAR)
-                        | (anio_num > config.MAX_BIRTH_YEAR)
-                    )
-                    total_anios_invalidos += int(es_anio_invalido.sum())
-                    bloque["Año_de_nacimiento"] = anio_num.mask(
-                        (anio_num < config.MIN_BIRTH_YEAR)
-                        | (anio_num > config.MAX_BIRTH_YEAR)
-                    )
-
-                    genero_limpio = bloque["Genero"].astype("string").str.strip()
-                    total_genero_null += int((genero_limpio == "NULL").sum())
-                    total_genero_vacio += int((genero_limpio == "").sum())
-                    bloque["Genero"] = genero_limpio.replace({"NULL": pd.NA, "": pd.NA})
-
-                    bloque["Inicio_del_viaje"] = convertir_columna_fecha(
-                        bloque["Inicio_del_viaje"], "Inicio_del_viaje", ruta_csv
-                    )
-                    bloque["Fin_del_viaje"] = convertir_columna_fecha(
-                        bloque["Fin_del_viaje"], "Fin_del_viaje", ruta_csv
-                    )
-
-                    duracion_seg = (
-                        bloque["Fin_del_viaje"] - bloque["Inicio_del_viaje"]
-                    ).dt.total_seconds()
-                    es_viaje_corto = duracion_seg < config.MIN_TRIP_DURATION_SECONDS
-                    total_viajes_cortos += int(es_viaje_corto.sum())
-
-                    bloque_filtrado = bloque.loc[~es_viaje_corto, config.TRIP_COLUMNS]
-                    bloque_sin_duplicados = bloque_filtrado.drop_duplicates()
-                    total_duplicados += len(bloque_filtrado) - len(
-                        bloque_sin_duplicados
-                    )
-                    total_filas_escritas += len(bloque_sin_duplicados)
+                    total_filas_leidas += stats["filas_leidas"]
+                    total_filas_escritas += stats["filas_escritas"]
+                    total_anios_invalidos += stats["anios_invalidos"]
+                    total_genero_null += stats["genero_null"]
+                    total_genero_vacio += stats["genero_vacio"]
+                    total_viajes_cortos += stats["viajes_cortos"]
+                    total_duplicados += stats["duplicados"]
 
                     estaciones_origen_activas.update(
                         bloque_sin_duplicados["Origen_Id"].dropna().astype(int).tolist()
@@ -374,7 +441,6 @@ def construir_parquet_y_versionar(
     )
     total_estaciones_catalogo = int(df_nomenclatura["id"].nunique())
 
-    # Calculamos el hash SHA-256 y el número de registros de cada archivo fuente
     detalle_archivos = []
     for ruta_csv in rutas_csv:
         detalle_archivos.append(
@@ -424,9 +490,9 @@ def main() -> None:
 
     reporte = construir_parquet_y_versionar(rutas_csv, ruta_nomenclatura)
 
-    # Si se ejecuta desde 'mlflow run . -e ingest', nombramos la corrida y subimos el manifiesto
     import os
     import mlflow
+
     if os.environ.get("MLFLOW_RUN_ID"):
         mlflow.set_tag("mlflow.runName", "Ingesta_Datos_MiBici")
         mlflow.set_tags(
