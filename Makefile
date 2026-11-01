@@ -99,3 +99,28 @@ mlflow-ingest:
 .PHONY: mlflow-register
 mlflow-register:
 	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 MLFLOW_EXPERIMENT_NAME=mibici-equipo35 $(PYTHON_INTERPRETER) -m mlflow run . -e register --env-manager=local -P action=register_and_verify
+
+#################################################################################
+# PRUEBAS AUTOMATIZADAS (PYTEST + DEEPCHECKS) Y CHEQUEOS DE SEGURIDAD           #
+#################################################################################
+
+## Ejecutar todas las pruebas unitarias, reproducibilidad, DeepChecks y seguridad con un comando
+.PHONY: test
+test:
+	$(PYTHON_INTERPRETER) -m pytest
+
+## Ejecutar pruebas forzando la muestra real del archivo Parquet
+.PHONY: test-real
+test-real:
+	MIBICI_TEST_DATA_MODE=real $(PYTHON_INTERPRETER) -m pytest
+
+## Ejecutar pruebas forzando el dataset sintético de respaldo (sin requerir Parquet local)
+.PHONY: test-synthetic
+test-synthetic:
+	MIBICI_TEST_DATA_MODE=synthetic $(PYTHON_INTERPRETER) -m pytest
+
+## Ejecutar chequeos de seguridad de código (bandit) y de dependencias (pip-audit)
+.PHONY: security
+security:
+	$(PYTHON_INTERPRETER) -m bandit -r mibici/
+	$(PYTHON_INTERPRETER) -m pip_audit --skip-editable

@@ -30,3 +30,12 @@ extend-select = ["I"]  # Add import sorting
 known-first-party = ["mibici"]
 force-sort-within-sections = true
 
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.bandit]
+targets = ["mibici"]
+exclude_dirs = ["tests", ".venv"]
