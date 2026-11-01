@@ -18,19 +18,14 @@ Registra en el servidor de MLflow Tracking:
 import argparse
 import json
 import os
-import subprocess
 import time
 import warnings
 
-# Librerías de MLflow para tracking, datasets, modelos y firmas
+import git
 import mlflow
 import mlflow.data
 import mlflow.sklearn
 from mlflow.models import infer_signature
-
-# IMPORTANTE: NO importamos LocalArtifactDatasetSource.
-# MLflow crea esa clase por dentro mientras se ejecuta, así que no se puede importar.
-# Basta con pasar la ruta del archivo como texto en "source=" (ver función 4).
 import numpy as np
 import pandas as pd
 from sklearn.cluster import Birch, KMeans, MiniBatchKMeans
@@ -65,15 +60,13 @@ from mibici import config, features, plots
 # ==============================================================================
 def obtener_metadatos_trazabilidad() -> tuple[str, str]:
     """
-    Lee el hash corto del commit actual de Git y el código SHA-256 corto del
-    archivo data/processed/data_version.json.
+    Lee el hash corto del commit actual de Git usando GitPython (sin invocar
+    subprocesos de sistema operativo) y el código SHA-256 corto del archivo
+    data/processed/data_version.json.
     """
     try:
-        commit_git = (
-            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
-            .decode("utf-8")
-            .strip()
-        )
+        repositorio = git.Repo(config.PROJ_ROOT, search_parent_directories=True)
+        commit_git = repositorio.head.commit.hexsha[:7]
     except Exception:
         commit_git = "sin_commit"
 
@@ -84,6 +77,132 @@ def obtener_metadatos_trazabilidad() -> tuple[str, str]:
             version_datos = datos_version.get("data_version_short", "desconocida")
 
     return commit_git, version_datos
+
+
+# ==============================================================================
+# FUNCIÓN AUXILIAR: CONSTRUIR ESTIMADOR REPRODUCIBLE PARA P1, P2 O P3
+# ==============================================================================
+def construir_estimador(
+    question: str,
+    stage: str = "candidate",
+    model: str = "ridge",
+    semilla: int = config.RANDOM_SEED,
+    alpha: float = config.DEFAULT_ALPHA,
+    c_reg: float = config.DEFAULT_C_REG,
+    n_estimators: int = config.DEFAULT_N_ESTIMATORS,
+    max_depth: int = config.DEFAULT_MAX_DEPTH,
+    learning_rate: float = config.DEFAULT_LEARNING_RATE,
+    n_clusters: int = config.DEFAULT_N_CLUSTERS,
+):
+    """
+    Crea y devuelve el estimador o Pipeline de Scikit-Learn para la pregunta (p1, p2, p3)
+    fijando explícitamente la semilla aleatoria (random_state=semilla) para garantizar
+    que dos ejecuciones con la misma semilla produzcan exactamente las mismas predicciones.
+    """
+    pregunta = question.lower().strip()
+    etapa = stage.lower().strip()
+    nombre_modelo = model.lower().strip()
+
+    if pregunta == "p1":
+        if etapa == "baseline" or nombre_modelo == "dummy":
+            return DummyRegressor(strategy="mean")
+        elif nombre_modelo == "ridge":
+            return Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    ("reg", Ridge(alpha=alpha, random_state=semilla)),
+                ]
+            )
+        elif nombre_modelo == "lasso":
+            return Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    ("reg", Lasso(alpha=alpha, random_state=semilla)),
+                ]
+            )
+        elif nombre_modelo == "rf":
+            return RandomForestRegressor(
+                n_estimators=n_estimators,
+                max_depth=max_depth,
+                max_samples=config.RF_MAX_SAMPLES,
+                n_jobs=1,
+                random_state=semilla,
+            )
+        elif nombre_modelo == "hgb":
+            return HistGradientBoostingRegressor(
+                max_iter=n_estimators,
+                max_depth=max_depth,
+                learning_rate=learning_rate,
+                random_state=semilla,
+            )
+        else:
+            raise ValueError(f"Modelo no reconocido para P1: {model}")
+
+    elif pregunta == "p2":
+        if etapa == "baseline" or nombre_modelo == "dummy":
+            return DummyClassifier(strategy="stratified", random_state=semilla)
+        elif nombre_modelo == "logreg":
+            return Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    (
+                        "clf",
+                        LogisticRegression(
+                            C=c_reg,
+                            class_weight="balanced",
+                            max_iter=200,
+                            random_state=semilla,
+                        ),
+                    ),
+                ]
+            )
+        elif nombre_modelo == "rf_clf":
+            return RandomForestClassifier(
+                n_estimators=n_estimators,
+                max_depth=max_depth,
+                max_samples=config.RF_MAX_SAMPLES,
+                class_weight="balanced",
+                n_jobs=1,
+                random_state=semilla,
+            )
+        elif nombre_modelo == "hgb_clf":
+            return HistGradientBoostingClassifier(
+                class_weight="balanced",
+                max_iter=n_estimators,
+                max_depth=max_depth,
+                learning_rate=learning_rate,
+                random_state=semilla,
+            )
+        else:
+            raise ValueError(f"Modelo no reconocido para P2: {model}")
+
+    elif pregunta == "p3":
+        k_efectivo = 2 if etapa == "baseline" else n_clusters
+        if etapa == "baseline" or nombre_modelo == "kmeans":
+            estimador_cluster = KMeans(
+                n_clusters=k_efectivo, n_init=10, random_state=semilla
+            )
+        elif nombre_modelo == "minibatch_kmeans":
+            estimador_cluster = MiniBatchKMeans(
+                n_clusters=k_efectivo,
+                batch_size=128,
+                n_init=10,
+                random_state=semilla,
+            )
+        elif nombre_modelo == "birch":
+            estimador_cluster = Birch(n_clusters=k_efectivo, threshold=0.5)
+        else:
+            raise ValueError(f"Modelo no reconocido para P3: {model}")
+
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clusterer", estimador_cluster),
+            ]
+        )
+
+    else:
+        raise ValueError(f"Pregunta no reconocida: {question}. Usa 'p1', 'p2' o 'p3'.")
 
 
 # ==============================================================================
@@ -147,10 +266,11 @@ def cargar_datos_p3() -> pd.DataFrame:
 # ==============================================================================
 # FUNCIÓN 3: LEER ARGUMENTOS DE LÍNEA DE COMANDOS CON DEFECTOS DE CONFIG.PY
 # ==============================================================================
-def leer_argumentos() -> argparse.Namespace:
+def leer_argumentos(lista_args: list[str] | None = None) -> argparse.Namespace:
     """
     Lee los parámetros enviados por 'mlflow run' y reemplaza cualquier valor
     'from_config' por el valor oficial definido en mibici/config.py.
+    Acepta lista_args opcional para facilitar las pruebas unitarias con PyTest.
     """
     parser = argparse.ArgumentParser(
         description="Entrenamiento reproducible de modelos para P1, P2 y P3 (Equipo 35)."
@@ -165,7 +285,7 @@ def leer_argumentos() -> argparse.Namespace:
     parser.add_argument("--learning_rate", type=str, default="from_config")
     parser.add_argument("--n_clusters", type=str, default="from_config")
 
-    args = parser.parse_args()
+    args = parser.parse_args(lista_args)
 
     # Reemplazamos "from_config" usando exclusivamente las constantes de config.py
     pregunta = config.DEFAULT_QUESTION if args.question == "from_config" else args.question.lower()

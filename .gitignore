@@ -1,3 +1,19 @@
+# ==============================================================================
+# SEGURIDAD Y PRUEBAS AUTOMATIZADAS (ENTREGA 3 - EQUIPO 35)
+# ==============================================================================
+# Bloquear archivos de variables de entorno locales y credenciales (permitir solo plantilla)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*credentials*.json
+*secret*
+
+# Caché de PyTest y reportes temporales locales
+.pytest_cache/
+
 # Datos crudos, intermedios y Parquet pesado (solo permitimos data_version.json)
 /data/raw/*
 !/data/raw/.gitkeep
