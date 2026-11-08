@@ -124,3 +124,27 @@ test-synthetic:
 security:
 	$(PYTHON_INTERPRETER) -m bandit -r mibici/
 	$(PYTHON_INTERPRETER) -m pip_audit --skip-editable
+
+#################################################################################
+# SERVICIO API REST (FASTAPI) Y CONTENEDOR PODMAN (ENTREGA 4 - EQUIPO 35)       #
+#################################################################################
+
+## Exportar los modelos campeones desde el Model Registry hacia models/registry_bundle/
+.PHONY: export-models
+export-models:
+	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 $(PYTHON_INTERPRETER) -m mibici.api.model_loader
+
+## Levantar localmente el servidor API REST con FastAPI en el puerto 8000
+.PHONY: api-local
+api-local:
+	$(PYTHON_INTERPRETER) -m uvicorn mibici.api.main:app --host 127.0.0.1 --port 8000
+
+## Construir la imagen OCI del servicio API REST con Podman
+.PHONY: podman-build
+podman-build:
+	podman build -t mibici-api-equipo35:1.0 -f Containerfile .
+
+## Ejecutar el contenedor de la API REST localmente con Podman en el puerto 8000
+.PHONY: podman-run
+podman-run:
+	podman run --rm -d --name mibici-api -p 8000:8000 -e MLFLOW_TRACKING_URI=http://host.containers.internal:5000 mibici-api-equipo35:1.0
