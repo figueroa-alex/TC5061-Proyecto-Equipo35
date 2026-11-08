@@ -372,21 +372,251 @@ make security
 
 ---
 
-## 10. Referencias Bibliográficas
+## 10. Despliegue del Modelo como Servicio API REST con FastAPI en Contenedor Podman
 
-* Acuerdo DIELAG ACU 065/2022. (2022, 13 de octubre). Acuerdo del Ciudadano Gobernador Constitucional del Estado Libre y Soberano de Jalisco, mediante el cual se abroga el diverso acuerdo DIELAG ACU 016/2022. *Periódico Oficial "El Estado de Jalisco"*, Tomo CDV(28, Sección IV), 3–5.
+En esta entrega se empaquetaron los tres modelos campeones del proyecto MiBici (`mibici-equipo35-p1-demanda`, `mibici-equipo35-p2-riesgo` y `mibici-equipo35-p3-grupos`) en una **API REST construida con FastAPI** y desplegada dentro de un contenedor compatible con el estándar **OCI (Open Container Initiative)** gestionado con **Podman** (y 100% compatible con Docker).
+
+### 10.1 Archivos Integrados al Repositorio para la API y el Contenedor
+
+```text
+├── Containerfile                 <- Definición OCI de la imagen del contenedor (Python 3.14.3-slim + usuario no-root)
+├── .containerignore              <- Excluye datasets pesados (.csv, .parquet), .venv y mlflow.db del contexto de build
+├── mibici/
+│   └── api/
+│       ├── __init__.py           <- Inicializador del paquete del servicio REST
+│       ├── model_loader.py       <- Recuperación híbrida desde el Model Registry (@champion / v2) y exportación local
+│       ├── schemas.py            <- Esquemas Pydantic (BaseModel y Field) para validar entradas y salidas JSON
+│       └── main.py               <- Aplicación FastAPI con endpoints /health, /metadata y 3 rutas de predicción
+├── models/
+│   └── registry_bundle/          <- Artefactos descargados del Model Registry para garantizar portabilidad del contenedor
+│       ├── p1_demanda/           <- Modelo registrado mibici-equipo35-p1-demanda (v2, @champion)
+│       ├── p2_riesgo/            <- Modelo registrado mibici-equipo35-p2-riesgo (v2, @champion)
+│       ├── p3_grupos/            <- Modelo registrado mibici-equipo35-p3-grupos (v2, @champion)
+│       └── registry_manifest.json<- Manifiesto con versión, alias, run_id, git_commit y data_version
+└── tests/
+    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 31 tests)
+```
+
+### 10.2 Opción Elegida para Recuperar los Modelos desde el Model Registry
+
+Para asegurar reproducibilidad en cualquier entorno, el módulo `mibici/api/model_loader.py` implementa una **estrategia híbrida de recuperación desde el Model Registry de MLflow** (controlada por la variable de entorno `MIBICI_MODEL_LOAD_MODE=hybrid`):
+
+1. **Conexión en vivo al Model Registry mediante `MLFLOW_TRACKING_URI`:** Al iniciar el servicio, la API consulta el servidor configurado en `MLFLOW_TRACKING_URI` (por defecto `http://host.containers.internal:5000` dentro del contenedor) e intenta recuperar cada modelo utilizando su nombre oficial y el alias de producción `@champion` (`models:/mibici-equipo35-p1-demanda@champion`, `models:/mibici-equipo35-p2-riesgo@champion` y `models:/mibici-equipo35-p3-grupos@champion`) o su versión explícita (`v2`).
+2. **Respaldo autónomo empaquetado desde el Model Registry (`models/registry_bundle/`):** Mediante el comando `python -m mibici.api.model_loader` (o `make export-models`), los artefactos oficiales y metadatos de linaje de las versiones `@champion` (`v2`) se descargan desde el Model Registry hacia `models/registry_bundle/` y se copian dentro de la imagen OCI durante `podman build`. Si el contenedor se ejecuta en una máquina o entorno de CI/CD donde el servidor externo de MLflow no está encendido, la API carga automáticamente el modelo empaquetado sin interrumpir el servicio.
+
+### 10.3 Justificación de la Estrategia de Despliegue Elegida
+
+Con base en los criterios de arquitectura de sistemas de *Machine Learning* (Huyen, 2022; Treveil et al., 2020), se eligió una estrategia de **inferencia en tiempo real (síncrona vía API REST sobre HTTP)** por las siguientes razones operativas y de negocio:
+
+1. **Dependencia de variables de estado inmediato ($t-1$):** Los modelos de **P1 (Demanda horaria)** y **P2 (Riesgo de desbalance $\ge 30\%$ de capacidad)** dependen de los rezagos ocurridos en la hora inmediata anterior (`lag_1_iniciados`, `lag_1_terminados`, `lag_1_flujo_neto` y `media_movil_3_iniciados`). Una estrategia de inferencia en tiempo real permite al centro de control de MiBici y al equipo de rebalanceo consultar la predicción de cualquier estación justo al corte de cada hora con latencia de milisegundos.
+2. **Desacoplamiento e interoperabilidad mediante contratos JSON:** Exponer los tres modelos a través de FastAPI con esquemas validados por Pydantic (`mibici/api/schemas.py`) desacopla el entorno de modelado en Python de los sistemas consumidores (tableros operativos, aplicaciones móviles o microservicios de ruteo de camionetas), los cuales solo envían peticiones HTTP `POST` en formato JSON.
+3. **Consulta bajo demanda para planeación urbana (P3):** Aunque la segmentación de estaciones suele analizarse de forma periódica, exponer el modelo **P3 (`mibici-equipo35-p3-grupos@champion`)** en el endpoint `/predict/p3-grupos` permite clasificar de inmediato el perfil operativo de estaciones nuevas o simular cambios de capacidad (`dpcapacity`) sin re-ejecutar el pipeline completo.
+
+### 10.4 Validación de Entradas y Salidas con Pydantic y Pruebas de la API
+
+El módulo `mibici/api/schemas.py` valida todas las peticiones antes de invocar los modelos:
+* **Restricción de rangos operativos:** Verifica tipos numéricos y dominios válidos del AMG (`hora` $\in [0, 23]$, `dia_semana` $\in [0, 6]$, `mes` $\in [1, 12]$, `dpcapacity` $> 0$, `latitude` $\in [20.0, 21.5]$, `longitude` $\in [-104.0, -102.5]$ y proporciones $\in [0.0, 1.0]$).
+* **Protección de privacidad (`extra="forbid"`):** Cualquier petición que incluya campos no reconocidos o datos personales de usuarios (`Usuario_Id`, `Genero`, `Año_de_nacimiento`) es rechazada automáticamente con código HTTP `422 Unprocessable Entity`.
+* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), elevando la suite del repositorio a **31 pruebas automatizadas (`31 passed`)** y manteniendo **0 alertas** en `bandit` y `pip-audit`.
+
+### 10.5 Instrucciones para Construir la Imagen, Levantar el Contenedor y Consumir la API con Podman
+
+#### Paso 1: (Opcional) Actualizar el paquete de modelos desde el Model Registry local
+Si entrenaste o registraste una nueva versión `@champion` en tu servidor local de MLflow (`http://127.0.0.1:5000`), actualiza la carpeta `models/registry_bundle/` antes de construir la imagen:
+```bash
+source .venv/bin/activate
+export MLFLOW_TRACKING_URI="http://127.0.0.1:5000"
+python -m mibici.api.model_loader
+# O mediante el atajo del Makefile:
+make export-models
+```
+
+#### Paso 2: Construir la imagen OCI con `podman build`
+Desde la raíz del repositorio (donde se encuentran el `Containerfile` y `.containerignore`), ejecuta:
+```bash
+podman build -t mibici-api-equipo35:1.0 -f Containerfile .
+# O mediante el Makefile:
+make podman-build
+```
+*(Si prefieres utilizar Docker, el mismo `Containerfile` es compatible ejecutando: `docker build -t mibici-api-equipo35:1.0 -f Containerfile .`).*
+
+Verifica que la imagen se haya creado correctamente:
+```bash
+podman images mibici-api-equipo35
+```
+
+#### Paso 3: Levantar el contenedor localmente con `podman run`
+Ejecuta el contenedor en segundo plano (`-d`), mapeando el puerto `8000` del host al puerto `8000` del contenedor y configurando `MLFLOW_TRACKING_URI`:
+```bash
+podman run --rm -d \
+  --name mibici-api \
+  -p 8000:8000 \
+  -e MLFLOW_TRACKING_URI=http://host.containers.internal:5000 \
+  mibici-api-equipo35:1.0
+# O mediante el Makefile:
+make podman-run
+```
+*(En Docker: `docker run --rm -d --name mibici-api -p 8000:8000 -e MLFLOW_TRACKING_URI=http://host.docker.internal:5000 mibici-api-equipo35:1.0`).*
+
+Comprueba que el contenedor está en ejecución y revisa sus logs de inicio:
+```bash
+podman ps
+podman logs mibici-api
+```
+*(La documentación interactiva Swagger UI queda disponible en el navegador en `http://127.0.0.1:8000/docs`).*
+
+### 10.6 Ejemplos Funcionales de Petición y Respuesta
+
+#### A) Verificación de salud del servicio (`GET /health`)
+**Petición:**
+```bash
+curl -s http://127.0.0.1:8000/health | python -m json.tool
+```
+**Respuesta (`200 OK`):**
+```json
+{
+    "status": "ok",
+    "team": "Equipo35",
+    "tracking_uri_configurada": "http://host.containers.internal:5000",
+    "modelos_cargados": [
+        "mibici-equipo35-p1-demanda",
+        "mibici-equipo35-p2-riesgo",
+        "mibici-equipo35-p3-grupos"
+    ]
+}
+```
+
+#### B) Predicción de demanda horaria por estación — Pregunta 1 (`POST /predict/p1-demanda`)
+**Petición:**
+```bash
+curl -s -X POST "http://127.0.0.1:8000/predict/p1-demanda" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hora": 8,
+    "dia_semana": 1,
+    "mes": 9,
+    "es_fin_de_semana": 0,
+    "es_hora_pico": 1,
+    "dpcapacity": 19.0,
+    "latitude": 20.66769,
+    "longitude": -103.368252,
+    "lag_1_iniciados": 6.0,
+    "lag_2_iniciados": 3.0,
+    "lag_24_iniciados": 5.0,
+    "media_movil_3_iniciados": 4.3333,
+    "lag_1_terminados": 2.0,
+    "lag_1_flujo_neto": 4.0,
+    "lag_1_ratio_capacidad": 0.2105
+  }' | python -m json.tool
+```
+**Respuesta (`200 OK`):**
+```json
+{
+    "question": "p1",
+    "model_name": "mibici-equipo35-p1-demanda",
+    "model_version": "2",
+    "model_alias": "champion",
+    "loaded_from": "packaged_registry_bundle (models/registry_bundle)",
+    "viajes_iniciados_predichos": 4.4793
+}
+```
+
+#### C) Predicción de riesgo de desbalance horario — Pregunta 2 (`POST /predict/p2-riesgo`)
+**Petición:**
+```bash
+curl -s -X POST "http://127.0.0.1:8000/predict/p2-riesgo" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hora": 8,
+    "dia_semana": 1,
+    "mes": 9,
+    "es_fin_de_semana": 0,
+    "es_hora_pico": 1,
+    "dpcapacity": 19.0,
+    "latitude": 20.66769,
+    "longitude": -103.368252,
+    "lag_1_iniciados": 6.0,
+    "lag_2_iniciados": 3.0,
+    "lag_24_iniciados": 5.0,
+    "media_movil_3_iniciados": 4.3333,
+    "lag_1_terminados": 2.0,
+    "lag_1_flujo_neto": 4.0,
+    "lag_1_ratio_capacidad": 0.2105
+  }' | python -m json.tool
+```
+**Respuesta (`200 OK`):**
+```json
+{
+    "question": "p2",
+    "model_name": "mibici-equipo35-p2-riesgo",
+    "model_version": "2",
+    "model_alias": "champion",
+    "loaded_from": "packaged_registry_bundle (models/registry_bundle)",
+    "en_riesgo": 1,
+    "etiqueta_riesgo": "EN_RIESGO"
+}
+```
+
+#### D) Asignación de grupo operativo de estación — Pregunta 3 (`POST /predict/p3-grupos`)
+**Petición:**
+```bash
+curl -s -X POST "http://127.0.0.1:8000/predict/p3-grupos" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "promedio_salidas_diarias": 42.5,
+    "duracion_mediana_min": 11.2,
+    "prop_fin_de_semana": 0.21,
+    "prop_pico_manana": 0.24,
+    "prop_pico_tarde": 0.28,
+    "ratio_salidas_llegadas": 1.04,
+    "dpcapacity": 19.0,
+    "latitude": 20.66769,
+    "longitude": -103.368252
+  }' | python -m json.tool
+```
+**Respuesta (`200 OK`):**
+```json
+{
+    "question": "p3",
+    "model_name": "mibici-equipo35-p3-grupos",
+    "model_version": "2",
+    "model_alias": "champion",
+    "loaded_from": "packaged_registry_bundle (models/registry_bundle)",
+    "cluster_asignado": 3,
+    "descripcion_cluster": "Grupo operativo 3 de estaciones MiBici en el AMG."
+}
+```
+
+#### Detener el contenedor al finalizar las pruebas
+```bash
+podman stop mibici-api
+```
+
+### 10.7 Evidencia del Contenedor Ejecutado con Podman Respondiendo Peticiones de Prueba
+
+![Evidencia de la API REST en contenedor Podman respondiendo peticiones de prueba](reports/figures/evidencia_api_podman.png)
+
+## 11. Referencias Bibliográficas
+
+* Acuerdo DIELAG ACU 065/2022. (2022, 13 de octubre). Acuerdo del Ciudadano Gobernador Constitucional del Estado Libre y Soberano de Jalisco, mediante el cual se abroga el diverso acuerdo DIELAG ACU 016/2022. *Periódico Oficial "El Estado de Jalisco"*, Tomo CDV(28, Sección IV), 3–7.
+* Colvin, S., Jolibois, E., Ramezani, H., Garcia Badaracco, A., Dorsey, T., Montague, D., Matveenko, S., Trylesinski, M., Runkle, S., Hewitt, D., & Hall, A. (2024). *Pydantic documentation: Data validation using Python type hints*. https://docs.pydantic.dev/latest/
 * Conventional Commits. (s.f.). *Conventional Commits 1.0.0* [Especificación]. https://www.conventionalcommits.org/es/v1.0.0/
 * Deepchecks. (2024). *Deepchecks documentation: Continuous validation for machine learning*. https://docs.deepchecks.com/stable/getting-started/welcome.html
 * DrivenData. (2024). *Cookiecutter Data Science* (Versión 2) [Documentación]. https://cookiecutter-data-science.drivendata.org/
-* Google. (2026). Gemini (basado en Gemini 3.8) [Modelo de lenguaje grande], utilizado para la revisión de redacción.
+* Encode. (2024). *Uvicorn: An ASGI web server implementation for Python*. https://www.uvicorn.org/
+* Google. (2026). Gemini (basado en Gemini 3.8 Flash) [Modelo de lenguaje grande], utilizado para la revisión de redacción y código.
 * Grossmann, J., Wiesbrock, H., & Motta, M. (2021). *Testing ML-based systems*. European Telecommunications Standards Institute (ETSI).
 * Huyen, C. (2022). *Designing machine learning systems: An iterative process for production-ready applications*. O'Reilly Media.
 * Krekel, H., Oliveira, B., Pfannschmidt, R., Bruynooghe, F., Laugher, B., & Bruhin, F. (2024). *pytest: Helps you write better programs*. https://docs.pytest.org/en/stable/
 * Lakshmanan, V., Robinson, S., & Munn, M. (2020). *Machine learning design patterns: Solutions to common challenges in data preparation, model building, and MLOps*. O'Reilly Media.
 * MiBici. (2026). *Datos abiertos del sistema de bicicletas públicas MiBici* [Conjunto de datos]. Agencia Metropolitana de Servicios de Infraestructura para la Movilidad del Área Metropolitana de Guadalajara. https://mibici.net/es/datos-abiertos/
-* MLflow. (2024). *MLflow documentation: MLflow Tracking and Model Registry*. https://mlflow.org/docs/latest/index.html
+* MLflow. (2024). *MLflow documentation: MLflow Tracking, Model Registry and Deployment*. https://mlflow.org/docs/latest/ml/deployment/
+* Open Container Initiative. (2024). *OCI Image Format Specification*. Linux Foundation. https://github.com/opencontainers/image-spec
 * Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., & Duchesnay, É. (2011). Scikit-learn: Machine learning in Python. *Journal of Machine Learning Research*, 12(85), 2825–2830. http://jmlr.org/papers/v12/pedregosa11a.html
+* Podman. (2026). *Podman documentation*. Red Hat / Containers Organization. https://docs.podman.io/en/latest/
 * PyCQA. (2024). *Bandit: A tool designed to find common security issues in Python code*. Python Code Quality Authority. https://bandit.readthedocs.io/en/latest/
 * Python Packaging Authority. (2024). *pip-audit: Audits Python environments and dependency trees for known vulnerabilities*. https://pypi.org/project/pip-audit/
+* Ramírez, S. (2024). *FastAPI documentation: FastAPI in containers - Docker*. https://fastapi.tiangolo.com/deployment/docker/
+* Red Hat. (2026). *What is Podman?*. https://www.redhat.com/en/topics/containers/what-is-podman
 * Treveil, M., Omont, N., Stenac, C., Lefevre, K., Phan, D., Zentici, J., Lavoillotte, A., Miyazaki, M., & Heidmann, L. (2020). *Introducing MLOps: How to scale machine learning in the enterprise*. O'Reilly Media.
 * Wilson, B. (2022). *Machine learning engineering in action*. Manning Publications.
