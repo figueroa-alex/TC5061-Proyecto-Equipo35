@@ -1,0 +1,35 @@
+# Archivos de Git
+.git
+.gitignore
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Cache de Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks y pruebas
+notebooks/
+tests/
+reports/
+docs/
+references/
+
+# Archivos locales y secretos
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# Archivos temporales
+.DS_Store
+.idea/
+.vscode/
