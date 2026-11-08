@@ -35,6 +35,9 @@ minversion = "8.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore:codecs\\.open\\(\\) is deprecated:DeprecationWarning",
+]
 
 [tool.bandit]
 targets = ["mibici"]
