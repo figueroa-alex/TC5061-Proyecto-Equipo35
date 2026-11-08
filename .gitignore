@@ -30,6 +30,10 @@
 !/models/.gitkeep
 *.pkl
 *.joblib
+!/models/registry_bundle/
+!/models/registry_bundle/**
+!/models/registry_bundle/**/*.pkl
+!/models/registry_bundle/**/*.json
 
 # Archivos locales de MLFlow
 mlruns/

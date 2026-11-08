@@ -1,0 +1,1 @@
+"""Paquete del servicio API REST con FastAPI para los modelos del proyecto MiBici (Equipo 35)."""

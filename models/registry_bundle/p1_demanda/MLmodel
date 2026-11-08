@@ -1,0 +1,45 @@
+artifact_path: mlflow-artifacts:/1/models/m-633b6a6c4a4a4cdca7a5d471cbceb143/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.14.3
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.9.1
+    skops_trusted_types: null
+is_signature_from_type_hint: false
+mlflow_version: 3.17.2
+model_id: m-633b6a6c4a4a4cdca7a5d471cbceb143
+model_size_bytes: 902154
+model_uuid: m-633b6a6c4a4a4cdca7a5d471cbceb143
+prompts: null
+run_id: 84b3085d93064869a1c31c04fa4c518b
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "double", "name": "hora", "required": true}, {"type": "double",
+    "name": "dia_semana", "required": true}, {"type": "double", "name": "mes", "required":
+    true}, {"type": "double", "name": "es_fin_de_semana", "required": true}, {"type":
+    "double", "name": "es_hora_pico", "required": true}, {"type": "double", "name":
+    "dpcapacity", "required": true}, {"type": "double", "name": "latitude", "required":
+    true}, {"type": "double", "name": "longitude", "required": true}, {"type": "double",
+    "name": "lag_1_iniciados", "required": true}, {"type": "double", "name": "lag_2_iniciados",
+    "required": true}, {"type": "double", "name": "lag_24_iniciados", "required":
+    true}, {"type": "double", "name": "media_movil_3_iniciados", "required": true},
+    {"type": "double", "name": "lag_1_terminados", "required": true}, {"type": "double",
+    "name": "lag_1_flujo_neto", "required": true}, {"type": "double", "name": "lag_1_ratio_capacidad",
+    "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float64", "shape": [-1]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-11-05 01:35:18.037938'
