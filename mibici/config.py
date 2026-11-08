@@ -204,3 +204,29 @@ MODEL_NAME_P3 = "mibici-equipo35-p3-grupos"
 # - challenger: siguiente mejor versión, lista para reemplazar al champion
 PRODUCTION_ALIAS = "champion"
 CHALLENGER_ALIAS = "challenger"
+
+# ==============================================================================
+# 7. CONFIGURACIÓN DEL SERVICIO API REST (FASTAPI) Y EMPAQUETADO EN CONTENEDOR
+# ==============================================================================
+# Carpeta donde se guardan los modelos descargados desde el Model Registry de MLflow
+# para empaquetarlos dentro de la imagen del contenedor (estrategia híbrida).
+REGISTRY_BUNDLE_DIR = MODELS_DIR / "registry_bundle"
+BUNDLE_DIR_P1 = REGISTRY_BUNDLE_DIR / "p1_demanda"
+BUNDLE_DIR_P2 = REGISTRY_BUNDLE_DIR / "p2_riesgo"
+BUNDLE_DIR_P3 = REGISTRY_BUNDLE_DIR / "p3_grupos"
+BUNDLE_MANIFEST_FILE = REGISTRY_BUNDLE_DIR / "registry_manifest.json"
+
+# Alias y versión oficial del Model Registry para recuperar los modelos en la API
+MODEL_REGISTRY_ALIAS = os.getenv("MIBICI_MODEL_ALIAS", PRODUCTION_ALIAS)
+MODEL_REGISTRY_VERSION = os.getenv("MIBICI_MODEL_VERSION", "2")
+
+# Modo de recuperación del modelo en la API:
+#   'hybrid'   -> Intenta cargar desde MLFLOW_TRACKING_URI y, si no está disponible,
+#                 usa el modelo descargado del Model Registry en models/registry_bundle/
+#   'registry' -> Fuerza la carga en vivo desde el servidor MLFLOW_TRACKING_URI
+#   'bundle'   -> Carga directamente el modelo empaquetado en models/registry_bundle/
+MODEL_LOAD_MODE = os.getenv("MIBICI_MODEL_LOAD_MODE", "hybrid").lower()
+
+# Host y puerto del servidor FastAPI / Uvicorn
+API_HOST = os.getenv("MIBICI_API_HOST", "127.0.0.1")
+API_PORT = int(os.getenv("MIBICI_API_PORT", "8000"))

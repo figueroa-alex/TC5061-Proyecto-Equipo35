@@ -1,0 +1,42 @@
+{
+    "tracking_uri_origen": "http://127.0.0.1:5000",
+    "team": "Equipo35",
+    "models": {
+        "p1": {
+            "question": "p1",
+            "model_name": "mibici-equipo35-p1-demanda",
+            "model_version": "2",
+            "model_alias": "champion",
+            "registry_uri_alias": "models:/mibici-equipo35-p1-demanda@champion",
+            "registry_uri_version": "models:/mibici-equipo35-p1-demanda/2",
+            "run_id": "84b3085d93064869a1c31c04fa4c518b",
+            "git_commit": "9f8eea9",
+            "data_version": "128979137b46",
+            "bundle_relative_path": "models/registry_bundle/p1_demanda"
+        },
+        "p2": {
+            "question": "p2",
+            "model_name": "mibici-equipo35-p2-riesgo",
+            "model_version": "2",
+            "model_alias": "champion",
+            "registry_uri_alias": "models:/mibici-equipo35-p2-riesgo@champion",
+            "registry_uri_version": "models:/mibici-equipo35-p2-riesgo/2",
+            "run_id": "fd217796641a4ec98507086df10847f8",
+            "git_commit": "9f8eea9",
+            "data_version": "128979137b46",
+            "bundle_relative_path": "models/registry_bundle/p2_riesgo"
+        },
+        "p3": {
+            "question": "p3",
+            "model_name": "mibici-equipo35-p3-grupos",
+            "model_version": "2",
+            "model_alias": "champion",
+            "registry_uri_alias": "models:/mibici-equipo35-p3-grupos@champion",
+            "registry_uri_version": "models:/mibici-equipo35-p3-grupos/2",
+            "run_id": "c73f835e95f74e59b1ac31d9d5c166fe",
+            "git_commit": "9f8eea9",
+            "data_version": "128979137b46",
+            "bundle_relative_path": "models/registry_bundle/p3_grupos"
+        }
+    }
+}
