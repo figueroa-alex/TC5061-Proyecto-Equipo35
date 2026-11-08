@@ -25,6 +25,15 @@
 *.parquet
 *.csv
 
+# Snapshot versionado del catálogo de estaciones (versión de datos 128979137b46).
+# MiBici sustituye el archivo cada mes y elimina el anterior; esta copia
+# garantiza la reproducibilidad. Solo se permite ESTE archivo.
+!/data/raw/nomenclatura/
+/data/raw/nomenclatura/*
+!/data/raw/nomenclatura/2026/
+/data/raw/nomenclatura/2026/*
+!/data/raw/nomenclatura/2026/nomenclatura_2026_09.csv
+
 # Modelos serializados locales (no se entregan en Git)
 /models/*
 !/models/.gitkeep
