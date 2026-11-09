@@ -37,6 +37,7 @@ python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 filterwarnings = [
     "ignore:codecs\\.open\\(\\) is deprecated:DeprecationWarning",
+    "ignore:The ``noload`` loader strategy is deprecated:DeprecationWarning",
 ]
 
 [tool.bandit]

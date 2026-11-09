@@ -30,10 +30,14 @@ if "pkg_resources" not in sys.modules:
 if "max_error" not in _SCORERS and "neg_max_error" in _SCORERS:
     _SCORERS["max_error"] = _SCORERS["neg_max_error"]
 
-if not hasattr(np, "NaN"):
-    np.NaN = np.nan
-if not hasattr(np, "Inf"):
-    np.Inf = np.inf
+for atributo_viejo, atributo_nuevo in [
+    ("Inf", "inf"),
+    ("NaN", "nan"),
+    ("float_", "float64"),
+]:
+    if not hasattr(np, atributo_viejo):
+        setattr(np, atributo_viejo, getattr(np, atributo_nuevo))
+
 if not hasattr(pd.DataFrame, "applymap"):
     pd.DataFrame.applymap = pd.DataFrame.map
 if not hasattr(pd.Series, "iteritems"):
@@ -94,7 +98,8 @@ def df_viajes_validos_sinteticos() -> pd.DataFrame:
     """
     generador = np.random.default_rng(config.RANDOM_SEED)
     estaciones = [10, 20, 30, 40, 50, 60]
-    fecha_base = pd.Timestamp("2025-10-01 06:00:00")
+    # Iniciamos en viernes para que las 40 horas incluyan viernes (entre semana) y sábado (fin de semana)
+    fecha_base = pd.Timestamp("2025-10-03 06:00:00")
 
     registros = []
     viaje_id = 1000

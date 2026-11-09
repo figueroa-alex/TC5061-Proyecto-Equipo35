@@ -1,8 +1,9 @@
 """
 Validación automatizada de calidad, integridad y drift de datos con DeepChecks (Equipo 35).
 Soporta dos modos de ejecución configurables mediante la variable de entorno MIBICI_TEST_DATA_MODE:
-  1. Modo 'real' (o 'auto' cuando existen los archivos Parquet): evalúa una muestra
-     representativa de data/processed/datos_mibici.parquet y data/interim/features_p1_p2.parquet.
+  1. Modo 'real' (o 'auto' cuando existen los archivos Parquet): evalúa muestras
+     representativas de data/processed/datos_mibici.parquet, data/interim/features_p1_p2.parquet
+     y data/interim/features_p3.parquet.
   2. Modo 'synthetic' (o 'auto' en un clon limpio antes de correr la ingesta): evalúa
      el dataset sintético determinista de respaldo para que pytest siempre sea ejecutable.
 """
@@ -34,7 +35,7 @@ def _obtener_modo_datos() -> str:
 
 
 # ==============================================================================
-# FUNCIÓN AUXILIAR: CARGAR MUESTRA REAL O SINTÉTICA DE VIAJES Y FEATURES
+# FUNCIONES AUXILIARES: CARGAR MUESTRAS REALES O SINTÉTICAS (VIAJES, P1/P2 Y P3)
 # ==============================================================================
 def obtener_muestra_viajes_para_deepchecks(
     df_viajes_sinteticos: pd.DataFrame,
@@ -67,7 +68,7 @@ def obtener_particion_train_test_para_deepchecks(
 ) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     """
     Devuelve muestras de Train y Test de la tabla de features de P1/P2 para validar
-    FeatureDrift, LabelDrift y TrainTestSamplesMix con DeepChecks.
+    FeatureDrift, LabelDrift (en P1 y P2) y TrainTestSamplesMix con DeepChecks.
     """
     columnas_x = [
         "hora",
@@ -124,6 +125,49 @@ def obtener_particion_train_test_para_deepchecks(
     return df_train, df_test, "synthetic"
 
 
+def obtener_perfiles_p3_train_test_para_deepchecks(
+    monkeypatch,
+    df_nomenclatura_sintetica: pd.DataFrame,
+    df_viajes_sinteticos: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    """
+    Devuelve la tabla de perfiles por estación de P3 para el periodo de entrenamiento (Train)
+    y para el periodo de prueba (Test), tanto en modo real como en modo sintético.
+    """
+    modo = _obtener_modo_datos()
+    usar_real = (
+        modo in ("auto", "real")
+        and config.INTERIM_P3_FILE.exists()
+        and config.PARQUET_FILE.exists()
+    )
+
+    if usar_real:
+        df_p3_train = pd.read_parquet(config.INTERIM_P3_FILE)
+        corte_val = pd.Timestamp(config.VAL_END_DATE)
+        columnas_viajes = [
+            "Viaje_Id",
+            "Inicio_del_viaje",
+            "Fin_del_viaje",
+            "Origen_Id",
+            "Destino_Id",
+        ]
+        df_viajes_test = pd.read_parquet(
+            config.PARQUET_FILE,
+            columns=columnas_viajes,
+            filters=[("Inicio_del_viaje", ">", corte_val)],
+        )
+        df_p3_test = features.generar_features_p3_clustering(df_viajes_test)
+        return df_p3_train.reset_index(drop=True), df_p3_test.reset_index(drop=True), "real"
+
+    monkeypatch.setattr(
+        features, "cargar_nomenclatura", lambda: df_nomenclatura_sintetica
+    )
+    df_ordenado = df_viajes_sinteticos.sort_values("Inicio_del_viaje").reset_index(drop=True)
+    df_p3_train = features.generar_features_p3_clustering(df_ordenado.iloc[0::2])
+    df_p3_test = features.generar_features_p3_clustering(df_ordenado.iloc[1::2])
+    return df_p3_train.reset_index(drop=True), df_p3_test.reset_index(drop=True), "synthetic"
+
+
 # ==============================================================================
 # PRUEBA 1: INTEGRIDAD DEL DATASET DE VIAJES (TIPOS, NULOS, DUPLICADOS, STRINGS)
 # ==============================================================================
@@ -177,13 +221,13 @@ def test_deepchecks_integridad_dataset_viajes(df_viajes_validos_sinteticos):
 
 
 # ==============================================================================
-# PRUEBA 2: VALIDACIÓN DE PARTICIÓN TRAIN VS. TEST Y DRIFT CON DEEPCHECKS
+# PRUEBA 2: VALIDACIÓN DE PARTICIÓN TRAIN VS. TEST Y DRIFT EN P1 ('viajes_iniciados')
 # ==============================================================================
 def test_deepchecks_drift_y_fuga_train_test(
     monkeypatch, df_nomenclatura_sintetica, df_viajes_validos_sinteticos
 ):
     """
-    Ejecuta los chequeos Train-Test de DeepChecks sobre las variables de P1/P2:
+    Ejecuta los chequeos Train-Test de DeepChecks sobre las variables y la etiqueta de P1:
       1. TrainTestSamplesMix: verifica que no exista filtración de muestras entre Train y Test.
       2. FeatureDrift: verifica que las variables operativas principales (dpcapacity,
          lag_1_iniciados, latitude, longitude) tengan un drift bajo (< 0.25), y documenta
@@ -250,7 +294,141 @@ def test_deepchecks_drift_y_fuga_train_test(
 
 
 # ==============================================================================
-# PRUEBA 3: DETECCIÓN DE PROBLEMAS INYECTADOS (CASOS LÍMITE CON DEEPCHECKS)
+# PRUEBA 3: COMPARACIÓN TRAIN VS. TEST CON LA ETIQUETA DE RIESGO DE P2 ('en_riesgo')
+# ==============================================================================
+def test_deepchecks_drift_etiqueta_riesgo_p2(
+    monkeypatch, df_nomenclatura_sintetica, df_viajes_validos_sinteticos
+):
+    """
+    Valida con DeepChecks la partición de entrenamiento y prueba utilizando la etiqueta
+    binaria de clasificación de P2 ('en_riesgo', desbalance >= 30% de dpcapacity):
+      1. TrainTestSamplesMix: ausencia de filtración de filas entre Train y Test.
+      2. LabelDrift (Cramer's V sobre clasificación binaria): verifica que la proporción
+         de estaciones en riesgo sea estable entre entrenamiento y prueba (< 0.20).
+      3. FeatureDrift: consistencia de las variables predictoras de desbalance previo.
+    """
+    columnas_x = [
+        "hora",
+        "dia_semana",
+        "mes",
+        "es_fin_de_semana",
+        "es_hora_pico",
+        "dpcapacity",
+        "latitude",
+        "longitude",
+        "lag_1_iniciados",
+        "lag_2_iniciados",
+        "lag_24_iniciados",
+        "media_movil_3_iniciados",
+        "lag_1_terminados",
+        "lag_1_flujo_neto",
+        "lag_1_ratio_capacidad",
+    ]
+    columnas_cat = ["hora", "dia_semana", "mes", "es_fin_de_semana", "es_hora_pico"]
+
+    df_train, df_test, origen = obtener_particion_train_test_para_deepchecks(
+        monkeypatch, df_nomenclatura_sintetica, df_viajes_validos_sinteticos
+    )
+
+    ds_train_p2 = Dataset(
+        df_train[columnas_x + ["en_riesgo"]],
+        label="en_riesgo",
+        label_type="binary",
+        cat_features=columnas_cat,
+    )
+    ds_test_p2 = Dataset(
+        df_test[columnas_x + ["en_riesgo"]],
+        label="en_riesgo",
+        label_type="binary",
+        cat_features=columnas_cat,
+    )
+
+    res_mix_p2 = TrainTestSamplesMix().run(ds_train_p2, ds_test_p2)
+    assert res_mix_p2.value["ratio"] <= 0.05
+
+    res_label_drift_p2 = LabelDrift().run(ds_train_p2, ds_test_p2)
+    score_ld_p2 = float(res_label_drift_p2.value["Drift score"])
+    assert score_ld_p2 < 0.20, (
+        f"Label drift excesivo en etiqueta en_riesgo de P2 ({origen}): {score_ld_p2:.4f}"
+    )
+
+    res_fd_p2 = FeatureDrift().run(ds_train_p2, ds_test_p2)
+    for col_desbalance in ["lag_1_terminados", "lag_1_flujo_neto", "lag_1_ratio_capacidad"]:
+        score_fd = float(res_fd_p2.value[col_desbalance]["Drift score"])
+        assert score_fd < 0.25, (
+            f"Drift excesivo en variable de P2 {col_desbalance} ({origen}): {score_fd:.4f}"
+        )
+
+
+# ==============================================================================
+# PRUEBA 4: INTEGRIDAD Y COMPARACIÓN TRAIN VS. TEST DE LA TABLA DE PERFILES DE P3
+# ==============================================================================
+def test_deepchecks_perfiles_estaciones_p3_integridad_y_drift(
+    monkeypatch, df_nomenclatura_sintetica, df_viajes_validos_sinteticos
+):
+    """
+    Valida con DeepChecks la tabla de perfiles por estación de P3 (Clustering):
+      1. Integridad del conjunto de entrenamiento (IsSingleValue, MixedNulls,
+         MixedDataTypes y DataDuplicates == 0.0).
+      2. Comparación entre los perfiles de estaciones calculados en entrenamiento (Train)
+         y los perfiles calculados en prueba (Test) mediante FeatureDrift y TrainTestSamplesMix.
+    """
+    columnas_x_p3 = [
+        "promedio_salidas_diarias",
+        "duracion_mediana_min",
+        "prop_fin_de_semana",
+        "prop_pico_manana",
+        "prop_pico_tarde",
+        "ratio_salidas_llegadas",
+        "dpcapacity",
+        "latitude",
+        "longitude",
+    ]
+
+    df_p3_train, df_p3_test, origen = obtener_perfiles_p3_train_test_para_deepchecks(
+        monkeypatch, df_nomenclatura_sintetica, df_viajes_validos_sinteticos
+    )
+
+    ds_p3_train = Dataset(df_p3_train[columnas_x_p3], cat_features=[])
+    ds_p3_test = Dataset(df_p3_test[columnas_x_p3], cat_features=[])
+
+    # 1. Chequeos de integridad sobre la tabla de perfiles de P3
+    res_single_p3 = IsSingleValue().run(ds_p3_train)
+    for col, conteo_unicos in res_single_p3.value.items():
+        assert conteo_unicos > 1, f"Columna constante en P3 ({origen}): {col}"
+
+    res_nulls_p3 = MixedNulls().run(ds_p3_train)
+    for col, info_nulos in res_nulls_p3.value["columns"].items():
+        assert info_nulos == {}, f"Nulos detectados en P3 ({origen}) columna {col}: {info_nulos}"
+
+    res_types_p3 = MixedDataTypes().run(ds_p3_train)
+    for col, info_tipos in res_types_p3.value.items():
+        assert info_tipos == {}, f"Tipos mezclados en P3 ({origen}) columna {col}: {info_tipos}"
+
+    res_dup_p3 = DataDuplicates().run(ds_p3_train)
+    assert float(res_dup_p3.value) == 0.0
+
+    # 2. Comparación Train vs. Test de los perfiles de estaciones de P3
+    res_mix_p3 = TrainTestSamplesMix().run(ds_p3_train, ds_p3_test)
+    assert res_mix_p3.value["ratio"] <= 0.05
+
+    res_fd_p3 = FeatureDrift(min_samples=5).run(ds_p3_train, ds_p3_test)
+    if origen == "real":
+        # En datos reales (373 estaciones Train vs 469 Test), las 9 variables tienen KS < 0.20
+        for col in columnas_x_p3:
+            score_ks = float(res_fd_p3.value[col]["Drift score"])
+            assert score_ks < 0.20, (
+                f"Drift excesivo en perfil P3 real columna {col}: {score_ks:.4f}"
+            )
+    else:
+        # En modo sintético (6 estaciones), las variables estructurales del catálogo no cambian
+        for col_fija in ["dpcapacity", "latitude", "longitude"]:
+            score_ks = float(res_fd_p3.value[col_fija]["Drift score"])
+            assert score_ks == 0.0
+
+
+# ==============================================================================
+# PRUEBA 5: DETECCIÓN DE PROBLEMAS INYECTADOS (CASOS LÍMITE CON DEEPCHECKS)
 # ==============================================================================
 def test_deepchecks_detecta_problemas_inyectados():
     """

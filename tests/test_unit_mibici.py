@@ -291,3 +291,179 @@ def test_leer_argumentos_y_construir_estimador_casos_limite():
 
     with pytest.raises(ValueError, match="Pregunta no reconocida"):
         train.construir_estimador(question="p99")
+
+# ==============================================================================
+# BLOQUE 4: PRUEBAS DE CONSTRUCCIÓN DE PARQUET/VERSIONADO Y REGISTRO EN MLFLOW
+# ==============================================================================
+def test_construir_parquet_y_versionar_creacion_y_reuso(tmp_path: Path, monkeypatch):
+    """
+    Prueba integralmente dataset.construir_parquet_y_versionar:
+      - Caso normal: Construye datos_mibici.parquet desde cero a partir de un CSV crudo,
+        aplica las reglas de limpieza y genera data_version.json con hashes SHA-256
+        y conteos exactos por archivo y del Parquet consolidado.
+      - Caso límite: Si el Parquet y data_version.json ya existen, reutiliza los conteos
+        previos sin reconstruir el Parquet y mantiene el mismo hash SHA-256.
+    """
+    # 1. Redirigimos las rutas de salida hacia la carpeta temporal tmp_path
+    ruta_parquet_temp = tmp_path / "datos_mibici.parquet"
+    ruta_version_temp = tmp_path / "data_version.json"
+    monkeypatch.setattr(config, "PARQUET_FILE", ruta_parquet_temp)
+    monkeypatch.setattr(config, "DATA_VERSION_FILE", ruta_version_temp)
+
+    # 2. Creamos un archivo CSV de viajes de prueba con 4 filas:
+    #    - Fila 1: viaje válido (15 min = 900 s)
+    #    - Fila 2: duplicado exacto de la fila 1 (debe eliminarse)
+    #    - Fila 3: viaje válido (10 min = 600 s) con año inválido 1850 y género NULL
+    #    - Fila 4: viaje corto de 45 s (< 121 s, debe eliminarse)
+    contenido_viajes = (
+        "Viaje_Id,Usuario_Id,Genero,Año_de_nacimiento,Inicio_del_viaje,Fin_del_viaje,Origen_Id,Destino_Id\n"
+        "1,101,M,1990,2026-09-01 08:00:00,2026-09-01 08:15:00,10,20\n"
+        "1,101,M,1990,2026-09-01 08:00:00,2026-09-01 08:15:00,10,20\n"
+        "2,102,NULL,1850,2026-09-01 09:00:00,2026-09-01 09:10:00,20,30\n"
+        "3,103,F,1995,2026-09-01 10:00:00,2026-09-01 10:00:45,30,10\n"
+    )
+    ruta_csv_viajes = tmp_path / "datos_abiertos_2026_09.csv"
+    ruta_csv_viajes.write_text(contenido_viajes, encoding="utf-8")
+
+    # 3. Creamos un catálogo de nomenclatura temporal con 3 estaciones
+    contenido_nom = (
+        "id,name,latitude,longitude,dpcapacity\n"
+        "10,Estacion A,20.67,-103.36,20\n"
+        "20,Estacion B,20.68,-103.37,15\n"
+        "30,Estacion C,20.69,-103.35,25\n"
+    )
+    ruta_csv_nom = tmp_path / "nomenclatura_2026_09.csv"
+    ruta_csv_nom.write_text(contenido_nom, encoding="utf-8")
+
+    # 4. Ejecución 1 (Caso normal: construcción desde cero)
+    manifiesto_1 = dataset.construir_parquet_y_versionar([ruta_csv_viajes], ruta_csv_nom)
+
+    assert ruta_parquet_temp.exists()
+    assert ruta_version_temp.exists()
+    assert manifiesto_1["rows_read_raw"] == 4
+    assert manifiesto_1["rows_written_clean"] == 2
+    assert manifiesto_1["short_trips_removed_lt_121s"] == 1
+    assert manifiesto_1["exact_duplicates_removed"] == 1
+    assert manifiesto_1["invalid_birth_years_masked"] == 1
+    assert manifiesto_1["genero_null_to_na"] == 1
+    assert manifiesto_1["stations_in_nomenclature_catalog"] == 3
+    assert manifiesto_1["active_stations_in_trips"] == 3
+    assert len(manifiesto_1["data_version_short"]) == 12
+    assert manifiesto_1["parquet_sha256"] == dataset.calcular_sha256_archivo(ruta_parquet_temp)
+    assert len(manifiesto_1["source_csv_files"]) == 1
+    assert manifiesto_1["source_csv_files"][0]["rows"] == 4
+
+    # Verificamos el contenido del Parquet generado
+    df_parquet = pd.read_parquet(ruta_parquet_temp)
+    assert len(df_parquet) == 2
+    assert list(df_parquet["Viaje_Id"]) == [1, 2]
+
+    # 5. Ejecución 2 (Caso límite: Parquet y manifiesto ya existen, debe reutilizarlos)
+    manifiesto_2 = dataset.construir_parquet_y_versionar([ruta_csv_viajes], ruta_csv_nom)
+    assert manifiesto_2["parquet_sha256"] == manifiesto_1["parquet_sha256"]
+    assert manifiesto_2["data_version_short"] == manifiesto_1["data_version_short"]
+    assert manifiesto_2["rows_written_clean"] == 2
+
+
+def test_registrar_artefactos_y_modelo_en_mlflow(tmp_path: Path, monkeypatch):
+    """
+    Verifica que train.registrar_artefactos_y_modelo registre correctamente en MLflow:
+      1. El dataset de entrenamiento (mlflow.log_input) con su nombre y digest de versión.
+      2. El manifiesto data_version.json en la subcarpeta 'data/'.
+      3. Los archivos config.py y run_config.json en la subcarpeta 'config/'.
+      4. Las dos gráficas de evaluación en la subcarpeta 'plots/'.
+      5. El modelo entrenado con su firma (signature), ejemplo de entrada y etiqueta 'logged_model_uri'.
+    """
+    import mlflow
+    from mlflow.tracking import MlflowClient
+    from sklearn.dummy import DummyRegressor
+
+    # 1. Creamos un manifiesto data_version.json temporal y dos gráficas PNG de prueba
+    ruta_version_temp = tmp_path / "data_version.json"
+    ruta_version_temp.write_text('{"data_version_short": "128979137b46"}', encoding="utf-8")
+    monkeypatch.setattr(config, "DATA_VERSION_FILE", ruta_version_temp)
+
+    ruta_fig_1 = tmp_path / "p1_real_vs_pred.png"
+    ruta_fig_2 = tmp_path / "p1_residuales.png"
+    plots.graficar_real_vs_predicho_p1(
+        pd.Series([1.0, 2.0, 3.0, 4.0]),
+        np.array([1.1, 1.9, 3.1, 3.9]),
+        ruta_fig_1,
+    )
+    plots.graficar_residuales_p1(
+        pd.Series([1.0, 2.0, 3.0, 4.0]),
+        np.array([1.1, 1.9, 3.1, 3.9]),
+        ruta_fig_2,
+    )
+
+    # 2. Preparamos una muestra de entrenamiento (60 filas) y un modelo simple
+    generador = np.random.default_rng(config.RANDOM_SEED)
+    X_muestra = pd.DataFrame(
+        {
+            "hora": generador.integers(0, 24, size=60).astype("float64"),
+            "dpcapacity": generador.integers(15, 30, size=60).astype("float64"),
+            "lag_1_iniciados": generador.uniform(1.0, 10.0, size=60).astype("float64"),
+        }
+    )
+    y_muestra = generador.uniform(1.0, 10.0, size=60).astype("float64")
+    modelo_prueba = DummyRegressor(strategy="mean")
+    modelo_prueba.fit(X_muestra, y_muestra)
+    pred_muestra = modelo_prueba.predict(X_muestra)
+
+    # 3. Configuramos un servidor local temporal de MLflow en tmp_path
+    uri_previa = mlflow.get_tracking_uri()
+    uri_temporal = f"sqlite:///{tmp_path / 'test_mlflow.db'}"
+    mlflow.set_tracking_uri(uri_temporal)
+
+    try:
+        experimento_id = mlflow.create_experiment(
+            "test_artefactos_equipo35",
+            artifact_location=(tmp_path / "mlartifacts").as_uri(),
+        )
+        resumen_cfg = {"question": "p1", "model_name": "dummy", "random_seed": 42}
+
+        with mlflow.start_run(experiment_id=experimento_id, run_name="run_prueba") as corrida_activa:
+            run_id = corrida_activa.info.run_id
+            train.registrar_artefactos_y_modelo(
+                modelo_entrenado=modelo_prueba,
+                X_muestra=X_muestra,
+                pred_muestra=pred_muestra,
+                rutas_graficas=[ruta_fig_1, ruta_fig_2],
+                resumen_config=resumen_cfg,
+                nombre_dataset="mibici_test_input",
+                version_datos="128979137b46",
+            )
+
+        # 4. Consultamos la corrida en MLflow para verificar todos los artefactos y metadatos
+        cliente = MlflowClient(tracking_uri=uri_temporal)
+        corrida_registrada = cliente.get_run(run_id)
+
+        # 4.1 Verificar dataset registrado con log_input y digest
+        inputs_registrados = corrida_registrada.inputs.dataset_inputs
+        assert len(inputs_registrados) == 1
+        assert inputs_registrados[0].dataset.name == "mibici_test_input"
+        assert inputs_registrados[0].dataset.digest == "128979137b46"
+
+        # 4.2 Verificar subcarpetas de artefactos ('data', 'config', 'plots')
+        carpetas_raiz = {art.path for art in cliente.list_artifacts(run_id)}
+        assert {"data", "config", "plots"}.issubset(carpetas_raiz)
+
+        archivos_data = {art.path for art in cliente.list_artifacts(run_id, "data")}
+        assert "data/data_version.json" in archivos_data
+
+        archivos_config = {art.path for art in cliente.list_artifacts(run_id, "config")}
+        assert "config/config.py" in archivos_config
+        assert "config/run_config.json" in archivos_config
+
+        archivos_plots = {art.path for art in cliente.list_artifacts(run_id, "plots")}
+        assert "plots/p1_real_vs_pred.png" in archivos_plots
+        assert "plots/p1_residuales.png" in archivos_plots
+
+        # 4.3 Verificar que el modelo se haya registrado y se pueda cargar para predecir
+        uri_modelo = corrida_registrada.data.tags.get("logged_model_uri", "")
+        assert uri_modelo != ""
+        modelo_recuperado = mlflow.sklearn.load_model(uri_modelo)
+        predicciones_recuperadas = modelo_recuperado.predict(X_muestra.head(5))
+        np.testing.assert_allclose(predicciones_recuperadas, pred_muestra[:5])
+    finally:
+        mlflow.set_tracking_uri(uri_previa)
