@@ -249,7 +249,7 @@ El equipo adoptó **GitHub Flow** con las siguientes reglas:
 
 ## 9. Pruebas Automatizadas (PyTest + DeepChecks) y Chequeos de Seguridad
 
-En esta entrega se integró al repositorio una suite automatizada de **25 pruebas** en la carpeta dedicada `tests/` junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
+En esta entrega se integró al repositorio una suite automatizada de **35 pruebas** en la carpeta dedicada `tests/` (29 pruebas de unidad, reproducibilidad, validación de datos con DeepChecks y seguridad del repositorio, más 6 pruebas de los endpoints de la API REST con FastAPI) junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
 
 ### 9.1 Estructura de la Carpeta `tests/`
 
@@ -257,10 +257,11 @@ En esta entrega se integró al repositorio una suite automatizada de **25 prueba
 tests/
 ├── __init__.py               <- Inicializador del paquete de pruebas
 ├── conftest.py               <- Fixtures deterministas (semilla 42) y puente de compatibilidad para DeepChecks
-├── test_unit_mibici.py       <- 16 pruebas unitarias (casos normales y casos límite) de dataset.py, features.py, plots.py y train.py
+├── test_unit_mibici.py       <- 18 pruebas unitarias (casos normales y límite) de dataset.py, features.py, plots.py y train.py (incluyendo Parquet/versionado y artefactos en MLflow)
 ├── test_reproducibility.py   <- 3 pruebas de reproducibilidad del entrenamiento (P1 Regresión, P2 Clasificación, P3 Clustering)
-├── test_data_deepchecks.py   <- 3 pruebas de validación de integridad, calidad y drift del dataset con DeepChecks
-└── test_security_repo.py     <- 3 pruebas automatizadas de seguridad (.gitignore, .env.example y ausencia de secretos)
+├── test_data_deepchecks.py   <- 5 pruebas de validación de integridad, calidad y drift con DeepChecks para viajes crudos, P1, P2 y P3
+├── test_security_repo.py     <- 3 pruebas automatizadas de seguridad (.gitignore, .env.example y ausencia de secretos)
+└── test_api_fastapi.py       <- 6 pruebas de integración y validación Pydantic del servicio API REST (FastAPI)
 ```
 
 ---
@@ -273,9 +274,11 @@ tests/
 | `dataset.calcular_sha256_archivo` y `contar_registros_csv` | Cálculo exacto de hash SHA-256 por bloques y conteo de filas de datos descontando el encabezado. | Archivos CSV completamente vacíos (`0 bytes`), devolviendo `0` registros sin producir conteos negativos. |
 | `dataset.detectar_codificacion` y `convertir_columna_fecha` | Detección automática `utf-8-sig` vs. `cp1252` (letra `ñ`) y conversión de fechas en formatos ISO (`YYYY-MM-DD HH:MM:SS`) y día-primero (`DD/MM/YYYY HH:MM`). | Series de fecha completamente vacías o con espacios (`NaT`) y rechazo con `ValueError` ante formatos de fecha corruptos o desconocidos. |
 | `dataset.limpiar_bloque_viajes` | Conversión de tipos a `Int64`, conservación de viajes válidos ($\ge 121\text{ s}$) y conteo de estadísticas de limpieza. | Eliminación de viajes cortos ($< 121\text{ s}$) y duplicados exactos; enmascaramiento a `pd.NA` de años de nacimiento fuera de `[1900, 2026]` (ej. `1850`, `2099`) y de cadenas `'NULL'`/`''` en `Genero`; manejo seguro de un `DataFrame` vacío (`0` filas). |
+| `dataset.construir_parquet_y_versionar` | Procesamiento de archivos CSV hacia `datos_mibici.parquet` aplicando todas las reglas de limpieza y generación del manifiesto `data_version.json` con hashes SHA-256 (`parquet_sha256`, `data_version_short`) y conteos por archivo fuente y catálogo de nomenclatura. | Reutilización segura del archivo Parquet y de los conteos previos cuando `datos_mibici.parquet` y `data_version.json` ya existen en disco, verificando que el hash SHA-256 permanezca invariante sin reprocesar los bloques. |
 | `features.construir_tabla_horaria_estaciones` y `generar_features_p1_y_p2` | Agregación horaria por estación, creación de variables de calendario, rezagos temporales (`.shift(1)`, `.shift(2)`, `.shift(24)`), promedio móvil de 3 horas y etiqueta binaria `en_riesgo`. | Verificación matemática contra fuga de datos (*data leakage*) comprobando que `lag_1_iniciados` en la hora $t$ coincida exactamente con `viajes_iniciados` en $t-1$; manejo seguro de estaciones con capacidad cero (`dpcapacity = 0`) evitando divisiones por cero (`ZeroDivisionError`) o valores infinitos. |
 | `features.generar_features_p3_clustering` | Construcción del perfil operativo y geográfico por estación sobre el conjunto de entrenamiento. | Estaciones sin llegadas registradas (reemplazo seguro de denominador `0` por `1` en `ratio_salidas_llegadas`) y validación de proporciones en el rango `[0.0, 1.0]`. |
 | `plots.*` y `train.leer_argumentos` / `construir_estimador` | Creación de archivos `.png` no vacíos para P1 y P2; reemplazo automático de `"from_config"` por las constantes de `mibici/config.py`. | Rechazo con `ValueError` ante preguntas o nombres de modelos no reconocidos (`p99`, `modelo_inexistente`). |
+| `train.registrar_artefactos_y_modelo` | Registro completo en un servidor SQLite de MLflow del dataset de entrenamiento (`mlflow.log_input` con `digest`), manifiesto en `data/data_version.json`, configuración en `config/config.py` y `config/run_config.json`, gráficas en `plots/` y modelo serializado con `signature`, `input_example` y etiqueta `logged_model_uri`. | Verificación de recuperación e inferencia del modelo registrado desde su URI `models:/m-...` comprobando que las predicciones coincidan exactamente con las del modelo en memoria. |
 | **Reproducibilidad del entrenamiento** (`test_reproducibility.py`) | Dos ejecuciones independientes con la misma semilla (`RANDOM_SEED = 42`) para **P1** (`HistGradientBoostingRegressor`, `RandomForestRegressor`, `Ridge`), **P2** (`HistGradientBoostingClassifier`, `LogisticRegression`, `RandomForestClassifier`) y **P3** (`KMeans`). | Verificación estricta con `np.testing.assert_allclose` (`rtol=1e-12`, `atol=1e-12`) y `assert_array_equal` de que dos corridas con la misma semilla producen **exactamente las mismas predicciones, probabilidades, asignaciones de cluster y métricas** (`MAE`, `R2`, `F1-Score`, `ROC-AUC` y `Silhouette Score`). |
 
 ---
@@ -284,22 +287,24 @@ tests/
 
 Las pruebas de `DeepChecks` soportan **dos modos de ejecución** controlados mediante la variable de entorno `MIBICI_TEST_DATA_MODE` (definida en `.env.example` y `mibici/config.py`):
 
-1. **Modo Muestra Real (`MIBICI_TEST_DATA_MODE=real` o `auto` cuando existen los archivos Parquet en disco):** Evalúa una muestra determinista de `10,000` viajes limpios de `data/processed/datos_mibici.parquet` y muestras de `5,000` observaciones de entrenamiento vs. `5,000` de prueba de `data/interim/features_p1_p2.parquet`.
+1. **Modo Muestra Real (`MIBICI_TEST_DATA_MODE=real` o `auto` cuando existen los archivos Parquet en disco):** Evalúa una muestra determinista de `10,000` viajes limpios de `data/processed/datos_mibici.parquet`, muestras de `5,000` observaciones de entrenamiento vs. `5,000` de prueba de `data/interim/features_p1_p2.parquet` (tanto para la etiqueta continua `viajes_iniciados` de **P1** como para la etiqueta binaria `en_riesgo` de **P2**), y la tabla de perfiles de estaciones de **P3** (`data/interim/features_p3.parquet`, `373` estaciones en entrenamiento vs. `469` estaciones activas en el periodo de prueba).
 2. **Modo Sintético de Respaldo (`MIBICI_TEST_DATA_MODE=synthetic` o `auto` en un clon limpio antes de correr la ingesta):** Evalúa el *dataset* sintético determinista generado en `tests/conftest.py` para que `pytest` sea ejecutable con un solo comando inmediatamente después de clonar el repositorio, incluso antes de descargar los 48 archivos CSV.
 
 #### Hallazgos Documentados de DeepChecks sobre el Dataset Real (Versión `128979137b46`)
 
-| Chequeo de DeepChecks | Dataset Evaluado | Resultado Obtenido | Interpretación Técnica y de Negocio |
+| Chequeo de DeepChecks | Dataset / Pregunta Evaluada | Resultado Obtenido | Interpretación Técnica y de Negocio |
 | :--- | :--- | :--- | :--- |
-| `IsSingleValue` | `datos_mibici.parquet` (muestra $n=10,000$) | `0` columnas constantes (`Usuario_Id: 4,582`, `Genero: 3`, `Año_de_nacimiento: 62`, `Origen_Id: 299`, `Destino_Id: 300`). | Todas las variables conservan variabilidad informativa tras el proceso de limpieza. |
-| `MixedNulls` | `datos_mibici.parquet` (muestra $n=10,000$) | `Año_de_nacimiento`: `36` valores `NaN` (`0.36%`); `0` tipos de nulos mezclados en las demás columnas. | Confirma que `dataset.py` homologó las cadenas `'NULL'` y vacías a un único tipo nulo estándar y enmascaró como `NaN` los años fuera de `[1900, 2026]`. |
-| `MixedDataTypes` | `datos_mibici.parquet` y dataset con anomalías inyectadas | `{}` (`0` columnas con tipos mezclados en el Parquet limpio). Detecta tipos mezclados cuando se inyecta un entero en `Genero`. | Garantiza la integridad de tipos del esquema Parquet (`int64`, `float64`, `datetime64` y `object`). |
+| `IsSingleValue` | `datos_mibici.parquet` ($n=10,000$) y `features_p3.parquet` ($n=373$) | `0` columnas constantes en viajes (`Usuario_Id: 4,582`, `Genero: 3`, `Año_de_nacimiento: 62`, `Origen_Id: 299`, `Destino_Id: 300`) y `0` en perfiles P3 (`promedio_salidas_diarias: 371`, `duracion_mediana_min: 257`, `dpcapacity: 8`, `latitude: 372`, `longitude: 372`). | Todas las variables de viajes y las 9 variables agregadas de los perfiles de estaciones conservan variabilidad informativa real. |
+| `MixedNulls` | `datos_mibici.parquet` ($n=10,000$) y `features_p3.parquet` ($n=373$) | Viajes: `Año_de_nacimiento` con `36` valores `NaN` (`0.36%`) y `0` tipos de nulos mezclados. Perfiles P3: `{}` (`0` valores nulos en las 9 columnas). | Confirma que `dataset.py` homologó las cadenas `'NULL'` y vacías a un único tipo nulo estándar y que la tabla de perfiles de estaciones P3 está libre de valores faltantes. |
+| `MixedDataTypes` | `datos_mibici.parquet`, `features_p3.parquet` y dataset con anomalías inyectadas | `{}` (`0` columnas con tipos mezclados en viajes y en P3). Detecta tipos mezclados cuando se inyecta un entero (`999`) en `Genero`. | Garantiza la integridad de tipos del esquema Parquet (`int64`, `float64`, `datetime64` y `object`). |
 | `StringMismatch` y `SpecialCharacters` | `datos_mibici.parquet` (muestra $n=10,000$) | `Genero`: `{}` (`0.0%` de variantes con errores o caracteres especiales). | Confirma la estandarización de categorías en la columna `Genero`. |
-| `DataDuplicates` | `datos_mibici.parquet` y dataset con anomalías inyectadas | `0.0%` de duplicados exactos al incluir `Viaje_Id` y fechas; `2.24%` al evaluar solo el perfil `(Usuario_Id, Genero, Año, Origen_Id, Destino_Id)`. | La ingesta eliminó los `713` duplicados exactos crudos. El `2.24%` sin fecha ni ID corresponde a usuarios recurrentes que realizan el mismo trayecto origen-destino en días diferentes. |
+| `DataDuplicates` | `datos_mibici.parquet`, `features_p3.parquet` y dataset con anomalías inyectadas | `0.0%` de duplicados exactos en viajes (con `Viaje_Id` y fechas) y `0.0%` en perfiles de estaciones P3 (`373` estaciones únicas); `2.24%` al evaluar solo el perfil de viaje sin fecha ni ID. | La ingesta eliminó los `713` duplicados exactos crudos y cada estación en P3 tiene un registro único. |
 | `OutlierSampleDetection` | Dataset de prueba con anomalías inyectadas ($n=120$) | Vector de `1,000` cuantiles LoOP con probabilidad máxima `0.7871` (`> 0.50`). | Confirma que el detector multivariado LoOP identifica registros con conteos de viajes atípicos extremos. |
-| `TrainTestSamplesMix` | `features_p1_p2.parquet` (Train vs. Test, $n=5,000$ c/u) | `ratio = 0.0` (`0.0%` de muestras compartidas entre Train y Test). | Comprueba la ausencia de filtración de muestras entre el conjunto de entrenamiento (Oct 2022–Dic 2025) y el de prueba (Jun–Sep 2026). |
-| `FeatureDrift` | `features_p1_p2.parquet` (Train vs. Test, $n=5,000$ c/u) | Variables operativas estables ($< 0.07$): `hora = 0.0075`, `dia_semana = 0.0000`, `es_fin_de_semana = 0.0000`, `es_hora_pico = 0.0011`, `lag_1_iniciados = 0.0326`, `dpcapacity = 0.0460`. Variable calendario `mes = 0.7299` (V de Cramer). | El *drift* alto en `mes` (`0.7299`) es esperado por diseño de la partición temporal: Test abarca únicamente junio–septiembre de 2026 (4 meses), mientras que Train abarca los 12 meses del año. Las variables predictoras operativas y de capacidad mantienen distribuciones estables. |
-| `LabelDrift` | `features_p1_p2.parquet` (`viajes_iniciados`) | `Drift score = 0.0532` (prueba de Kolmogorov-Smirnov $< 0.20$). | La distribución de la variable objetivo `viajes_iniciados` se mantiene estable entre entrenamiento y prueba. |
+| `TrainTestSamplesMix` | `features_p1_p2.parquet` (P1 y P2, $n=5,000$ c/u) y perfiles de estaciones **P3** (Train $n=373$ vs. Test $n=469$) | `ratio = 0.0` (`0.0%` de muestras compartidas en P1, P2 y P3). | Comprueba la ausencia de filtración de observaciones entre el periodo de entrenamiento (Oct 2022–Dic 2025) y el de prueba (Jun–Sep 2026) en las tres preguntas. |
+| `FeatureDrift` (**P1 y P2**) | `features_p1_p2.parquet` (Train vs. Test, $n=5,000$ c/u) | Variables operativas y de desbalance estables ($< 0.07$): `hora = 0.0075`, `dia_semana = 0.0000`, `es_fin_de_semana = 0.0000`, `es_hora_pico = 0.0011`, `lag_1_iniciados = 0.0326`, `lag_1_terminados = 0.0332`, `lag_1_flujo_neto = 0.0202`, `lag_1_ratio_capacidad = 0.0520`, `dpcapacity = 0.0460`. Variable calendario `mes = 0.7299` (V de Cramer). | El *drift* alto en `mes` (`0.7299`) es esperado por diseño de la partición temporal: Test abarca únicamente junio–septiembre de 2026 (4 meses), mientras que Train abarca los 12 meses del año. Las variables predictoras de demanda y desbalance mantienen distribuciones estables. |
+| `LabelDrift` (**P1 — Regresión**) | `features_p1_p2.parquet` (`viajes_iniciados`) | `Drift score = 0.0532` (prueba de Kolmogorov-Smirnov $< 0.20$). | La distribución continua de viajes iniciados por hora es consistente entre entrenamiento y prueba. |
+| `LabelDrift` (**P2 — Clasificación**) | `features_p1_p2.parquet` (`en_riesgo`, desbalance $\ge 30\%$ de capacidad) | `Drift score = 0.0305` (V de Cramer $< 0.20$; prevalencia en muestra Train $= 3.98\%$, Test $= 2.80\%$). | La proporción de eventos críticos de riesgo horario se mantiene estable y sin cambio de régimen entre entrenamiento y prueba. |
+| `FeatureDrift` (**P3 — Clustering**) | Perfiles de estaciones **P3** en Train ($n=373$) vs. Test ($n=469$) | Las 9 variables operativas y geográficas presentan *drift* bajo (Kolmogorov-Smirnov $< 0.16$): `promedio_salidas_diarias = 0.0990`, `duracion_mediana_min = 0.1404`, `prop_fin_de_semana = 0.1560`, `prop_pico_manana = 0.0707`, `prop_pico_tarde = 0.1246`, `ratio_salidas_llegadas = 0.1536`, `dpcapacity = 0.0524`, `latitude = 0.0391`, `longitude = 0.0644`. | Confirma que la estructura espacial y los hábitos de uso por estación en el AMG son consistentes entre el periodo de entrenamiento y el periodo de prueba (incluyendo las nuevas estaciones incorporadas en 2026). |
 
 ---
 
@@ -308,13 +313,13 @@ Las pruebas de `DeepChecks` soportan **dos modos de ejecución** controlados med
 1. **Protección de credenciales y variables de entorno (`.gitignore`, `.env.example` y `mibici/config.py`):**
    * Se integró la plantilla `.env.example` con las variables de entorno del proyecto (`MLFLOW_TRACKING_URI`, `MLFLOW_EXPERIMENT_NAME`, `MIBICI_OPEN_DATA_URL`, `MIBICI_RANDOM_SEED` y `MIBICI_TEST_DATA_MODE`) sin exponer secretos.
    * `mibici/config.py` carga automáticamente las variables desde `.env` mediante `python-dotenv` (`load_dotenv`) y `os.getenv()`.
-   * `.gitignore` excluye archivos `.env`, `.env.*` (permitiendo solo `!.env.example`), llaves privadas (`*.pem`, `*.key`, `*.crt`), bases de datos (`mlflow.db`) y archivos de datos (`*.csv`, `*.parquet`).
+   * `.gitignore` excluye archivos `.env`, `.env.*` (permitiendo solo `!.env.example`), llaves privadas (`*.pem`, `*.key`, `*.crt`), bases de datos (`mlflow.db`) y archivos de datos pesados (`*.csv`, `*.parquet`).
    * El módulo `tests/test_security_repo.py` verifica en cada corrida de `pytest` que `.gitignore` y `.env.example` estén presentes y escanea todos los archivos `.py` para confirmar la ausencia de tokens (`ghp_`, `AKIA`, `sk-`), llaves privadas o contraseñas escritas en el código.
 2. **Análisis estático de seguridad del código fuente con `bandit`:**
    * En la auditoría inicial sobre `mibici/`, `bandit` detectó **5 alertas**: 2 de severidad Media (`B310` en `mibici/dataset.py` por uso de `urlopen` sin validar el esquema de la URL) y 3 de severidad Baja (`B404`, `B603`, `B607` en `mibici/modeling/train.py` por uso de `subprocess.check_output` para leer el hash de Git).
-   * **Remediación aplicada:** Se implementó `dataset.validar_url_segura(url)` para permitir exclusivamente esquemas `https` y `http` con dominio válido antes de cualquier descarga, y en `train.py` se sustituyó `subprocess` por `GitPython` (`git.Repo`). Tras estos cambios, `bandit -r mibici/` reporta **0 problemas de seguridad** en las 2,341 líneas de código analizadas.
+   * **Remediación aplicada:** Se implementó `dataset.validar_url_segura(url)` para permitir exclusivamente esquemas `https` y `http` con dominio válido antes de cualquier descarga, y en `train.py` se sustituyó `subprocess` por `GitPython` (`git.Repo`). Tras estos cambios, `bandit -r mibici/` reporta **0 problemas de seguridad** (`No issues identified`).
 3. **Auditoría de vulnerabilidades en dependencias con `pip-audit`:**
-   * En la revisión inicial del entorno con `pip-audit`, se detectaron vulnerabilidades conocidas en `certifi` (`PYSEC-2026-4320`), `mlflow` (`CVE-2026-53995`), `setuptools` (`PYSEC-2026-3447`, `GHSA-xmj3-9gf7-h52w`),  `tornado` (`CVE-2026-116577`) y `pyasn1` (`CVE-2026-119194`, `CVE-2026-119195`, `CVE-2026-119196`, `CVE-2026-119197`).
+   * En la revisión inicial del entorno con `pip-audit`, se detectaron vulnerabilidades conocidas en `certifi` (`PYSEC-2026-4320`), `mlflow` (`CVE-2026-53995`), `setuptools` (`PYSEC-2026-3447`, `GHSA-xmj3-9gf7-h52w`), `tornado` (`CVE-2026-116577`) y `pyasn1` (`CVE-2026-119194`, `CVE-2026-119195`, `CVE-2026-119196`, `CVE-2026-119197`).
    * **Remediación aplicada:** Se actualizaron y fijaron en `requirements.txt` las versiones parcheadas (`certifi==2026.10.23`, `mlflow==3.17.2`, `setuptools==84.2.1`, `tornado==6.6` y `pyasn1==0.6.5`), logrando un resultado limpio de **`No known vulnerabilities found`**.
 
 ---
@@ -323,10 +328,10 @@ Las pruebas de `DeepChecks` soportan **dos modos de ejecución** controlados med
 
 Desde la raíz del repositorio con el entorno virtual activado (`source .venv/bin/activate`):
 
-#### A) Ejecutar la suite completa de pruebas con un solo comando (PyTest + Reproducibilidad + DeepChecks + Seguridad)
+#### A) Ejecutar la suite completa de pruebas con un solo comando (PyTest + Reproducibilidad + DeepChecks + Seguridad + API)
 
-* **Modo 1 — Con muestra representativa del archivo Parquet real (`data/processed/datos_mibici.parquet`):**
-  Si ya ejecutaste la ingesta de datos (`mlflow run . -e ingest --env-manager=local`), corre:
+* **Modo 1 — Con muestra representativa de los archivos Parquet reales (`datos_mibici.parquet`, `features_p1_p2.parquet` y `features_p3.parquet`):**
+  Si ya ejecutaste la ingesta y generación de tablas de características, corre:
   ```bash
   pytest
   # O mediante el comando del Makefile:
@@ -334,7 +339,7 @@ Desde la raíz del repositorio con el entorno virtual activado (`source .venv/bi
   ```
 
 * **Modo 2 — Con dataset sintético de respaldo (en un clon limpio sin haber ejecutado aún la ingesta):**
-  Si acabas de clonar el repositorio y deseas correr todas las pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
+  Si acabas de clonar el repositorio y deseas correr las 35 pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
   ```bash
   MIBICI_TEST_DATA_MODE=synthetic pytest
   # O mediante el comando del Makefile:
@@ -358,11 +363,11 @@ make security
 
 ### 9.6 Evidencia de Ejecución Exitosa de Pruebas y Chequeos de Seguridad
 
-**1. Ejecución exitosa de las 25 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks + Seguridad) sobre la muestra de datos reales (`25 passed in 4.70s`):**
+**1. Ejecución exitosa de las 35 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks en P1, P2 y P3 + Seguridad + API) sobre datos reales (`35 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo real](reports/figures/evidencia_pytest_real.png)
 
-**2. Ejecución exitosa de las 25 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `25 passed in 3.31s`):**
+**2. Ejecución exitosa de las 35 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `35 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo sintético](reports/figures/evidencia_pytest_synthetic.png)
 
@@ -394,7 +399,7 @@ En esta entrega se empaquetaron los tres modelos campeones del proyecto MiBici (
 │       ├── p3_grupos/            <- Modelo registrado mibici-equipo35-p3-grupos (v2, @champion)
 │       └── registry_manifest.json<- Manifiesto con versión, alias, run_id, git_commit y data_version
 └── tests/
-    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 31 tests)
+    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 35 tests)
 ```
 
 ### 10.2 Opción Elegida para Recuperar los Modelos desde el Model Registry
@@ -417,7 +422,7 @@ Con base en los criterios de arquitectura de sistemas de *Machine Learning* (Huy
 El módulo `mibici/api/schemas.py` valida todas las peticiones antes de invocar los modelos:
 * **Restricción de rangos operativos:** Verifica tipos numéricos y dominios válidos del AMG (`hora` $\in [0, 23]$, `dia_semana` $\in [0, 6]$, `mes` $\in [1, 12]$, `dpcapacity` $> 0$, `latitude` $\in [20.0, 21.5]$, `longitude` $\in [-104.0, -102.5]$ y proporciones $\in [0.0, 1.0]$).
 * **Protección de privacidad (`extra="forbid"`):** Cualquier petición que incluya campos no reconocidos o datos personales de usuarios (`Usuario_Id`, `Genero`, `Año_de_nacimiento`) es rechazada automáticamente con código HTTP `422 Unprocessable Entity`.
-* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), elevando la suite del repositorio a **31 pruebas automatizadas (`31 passed`)** y manteniendo **0 alertas** en `bandit` y `pip-audit`.
+* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), elevando la suite del repositorio a **35 pruebas automatizadas (`35 passed`)** y manteniendo **0 alertas** en `bandit` y `pip-audit`.
 
 ### 10.5 Instrucciones para Construir la Imagen, Levantar el Contenedor y Consumir la API con Podman
 
