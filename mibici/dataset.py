@@ -481,6 +481,163 @@ def construir_parquet_y_versionar(
     return manifiesto_version
 
 
+# ==============================================================================
+# FUNCIÓN 5: DESCARGAR, LIMPIAR Y VERSIONAR EL CORTE DE PRODUCCIÓN OCTUBRE 2026
+# ==============================================================================
+def asegurar_y_construir_lote_octubre_2026() -> dict:
+    """
+    Asegura que los archivos del periodo actual de producción (datos_abiertos_2026_10.csv
+    y nomenclatura_2026_10.csv) estén descargados localmente. Si falta alguno, lo descarga
+    del portal de MiBici validando el esquema seguro de URL.
+
+    Después limpia los viajes de Octubre 2026 con las mismas reglas oficiales, genera
+    data/processed/datos_mibici_2026_10.parquet y guarda su manifiesto SHA-256 en
+    data/processed/data_version_2026_10.json sin modificar el Parquet histórico (128979137b46).
+    """
+    config.RAW_TRIP_FILE_2026_10.parent.mkdir(parents=True, exist_ok=True)
+    config.NOMENCLATURE_FILE_2026_10.parent.mkdir(parents=True, exist_ok=True)
+    config.PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1. Si falta el CSV de viajes de Octubre 2026 o la nomenclatura 2026_10, los descargamos
+    if not config.RAW_TRIP_FILE_2026_10.exists() or not config.NOMENCLATURE_FILE_2026_10.exists():
+        url_portal = validar_url_segura(config.MIBICI_OPEN_DATA_URL)
+        print(f"Consultando {url_portal} para descargar archivos de Octubre 2026...")
+        peticion = Request(
+            url_portal,
+            headers={"User-Agent": "mibici-csv-downloader/1.0"},
+        )
+        with urlopen(peticion, timeout=config.REQUEST_TIMEOUT_SECONDS) as respuesta:  # nosec B310
+            codificacion_web = respuesta.headers.get_content_charset() or "utf-8"
+            html_pagina = respuesta.read().decode(codificacion_web, errors="replace")
+
+        enlaces = re.findall(r'href=["\']([^"\']+\.csv)["\']', html_pagina, re.IGNORECASE)
+        for enlace in enlaces:
+            url_completa = validar_url_segura(
+                urljoin(url_portal, html.unescape(enlace.strip()))
+            )
+            nombre_archivo = Path(unquote(urlparse(url_completa).path)).name.lower()
+
+            destino = None
+            if "datos_abiertos_2026_10" in nombre_archivo and not config.RAW_TRIP_FILE_2026_10.exists():
+                destino = config.RAW_TRIP_FILE_2026_10
+            elif "nomenclatura_2026_10" in nombre_archivo and not config.NOMENCLATURE_FILE_2026_10.exists():
+                destino = config.NOMENCLATURE_FILE_2026_10
+
+            if destino is not None:
+                ruta_temp = destino.with_name(destino.name + ".part")
+                print(f"Descargando lote producción: {destino.name} -> {destino}")
+                req_csv = Request(url_completa, headers={"User-Agent": "mibici-csv-downloader/1.0"})
+                with urlopen(req_csv, timeout=config.REQUEST_TIMEOUT_SECONDS) as resp_csv, open(  # nosec B310
+                    ruta_temp, "wb"
+                ) as salida:
+                    while True:
+                        bloque = resp_csv.read(1024 * 1024)
+                        if not bloque:
+                            break
+                        salida.write(bloque)
+                ruta_temp.replace(destino)
+
+    if not config.RAW_TRIP_FILE_2026_10.exists() or not config.NOMENCLATURE_FILE_2026_10.exists():
+        raise FileNotFoundError(
+            "No se encontraron datos_abiertos_2026_10.csv o nomenclatura_2026_10.csv en data/raw/."
+        )
+
+    # 2. Procesamos el CSV de Octubre 2026 hacia datos_mibici_2026_10.parquet si aún no existe
+    reconstruir_2026_10 = not config.PARQUET_FILE_2026_10.exists()
+    datos_previos_10 = {}
+    if config.DATA_VERSION_FILE_2026_10.exists():
+        with open(config.DATA_VERSION_FILE_2026_10, "r", encoding="utf-8") as f_prev10:
+            datos_previos_10 = json.load(f_prev10)
+
+    if reconstruir_2026_10 or "rows_written_clean" not in datos_previos_10:
+        codificacion_10 = detectar_codificacion(config.RAW_TRIP_FILE_2026_10)
+        df_crudo_10 = pd.read_csv(
+            config.RAW_TRIP_FILE_2026_10,
+            encoding=codificacion_10,
+            header=None,
+            names=config.TRIP_COLUMNS,
+            skiprows=1,
+            dtype="string",
+            keep_default_na=False,
+            na_filter=False,
+            low_memory=False,
+        )
+        df_limpio_10, stats_10 = limpiar_bloque_viajes(
+            df_crudo_10, config.RAW_TRIP_FILE_2026_10
+        )
+        tabla_arrow_10 = pa.Table.from_pandas(df_limpio_10, preserve_index=False)
+        pq.write_table(tabla_arrow_10, config.PARQUET_FILE_2026_10)
+
+        est_origen_10 = set(df_limpio_10["Origen_Id"].dropna().astype(int).tolist())
+        est_destino_10 = set(df_limpio_10["Destino_Id"].dropna().astype(int).tolist())
+        estaciones_activas_10 = len(est_origen_10.union(est_destino_10))
+    else:
+        stats_10 = {
+            "filas_leidas": datos_previos_10["rows_read_raw"],
+            "filas_escritas": datos_previos_10["rows_written_clean"],
+            "anios_invalidos": datos_previos_10["invalid_birth_years_masked"],
+            "genero_null": datos_previos_10["genero_null_to_na"],
+            "genero_vacio": datos_previos_10["genero_empty_to_na"],
+            "viajes_cortos": datos_previos_10["short_trips_removed_lt_121s"],
+            "duplicados": datos_previos_10["exact_duplicates_removed"],
+        }
+        estaciones_activas_10 = datos_previos_10["active_stations_in_trips"]
+
+    # 3. Comparamos nomenclatura 2026_09 vs 2026_10 para documentar los cambios físicos de la red
+    df_nom_09 = pd.read_csv(
+        config.NOMENCLATURE_FILE,
+        encoding=detectar_codificacion(config.NOMENCLATURE_FILE),
+    )
+    df_nom_10 = pd.read_csv(
+        config.NOMENCLATURE_FILE_2026_10,
+        encoding=detectar_codificacion(config.NOMENCLATURE_FILE_2026_10),
+    )
+    ids_removidos = sorted(list(set(df_nom_09["id"].astype(int)) - set(df_nom_10["id"].astype(int))))
+    comp_nom = pd.merge(df_nom_09, df_nom_10, on="id", suffixes=("_09", "_10"))
+    cambios_cap_df = comp_nom[comp_nom["dpcapacity_09"] != comp_nom["dpcapacity_10"]]
+    estaciones_cambio_capacidad = [
+        {
+            "Estacion_Id": int(fila["id"]),
+            "name": str(fila["name_10"]),
+            "dpcapacity_2026_09": int(fila["dpcapacity_09"]),
+            "dpcapacity_2026_10": int(fila["dpcapacity_10"]),
+        }
+        for _, fila in cambios_cap_df.iterrows()
+    ]
+
+    parquet_10_sha256 = calcular_sha256_archivo(config.PARQUET_FILE_2026_10)
+    manifiesto_2026_10 = {
+        "data_version_short": parquet_10_sha256[:12],
+        "parquet_sha256": parquet_10_sha256,
+        "date_range": config.CURRENT_PERIOD_LABEL,
+        "months_processed": 1,
+        "source_file": config.RAW_TRIP_FILE_2026_10.name,
+        "source_file_sha256": calcular_sha256_archivo(config.RAW_TRIP_FILE_2026_10),
+        "rows_read_raw": stats_10["filas_leidas"],
+        "rows_written_clean": stats_10["filas_escritas"],
+        "invalid_birth_years_masked": stats_10["anios_invalidos"],
+        "genero_null_to_na": stats_10["genero_null"],
+        "genero_empty_to_na": stats_10["genero_vacio"],
+        "short_trips_removed_lt_121s": stats_10["viajes_cortos"],
+        "exact_duplicates_removed": stats_10["duplicados"],
+        "stations_in_nomenclature_catalog": int(df_nom_10["id"].nunique()),
+        "active_stations_in_trips": estaciones_activas_10,
+        "nomenclature_file": {
+            "file": config.NOMENCLATURE_FILE_2026_10.name,
+            "encoding": detectar_codificacion(config.NOMENCLATURE_FILE_2026_10),
+            "rows": len(df_nom_10),
+            "sha256": calcular_sha256_archivo(config.NOMENCLATURE_FILE_2026_10),
+            "removed_station_ids_vs_2026_09": ids_removidos,
+            "capacity_changes_vs_2026_09": estaciones_cambio_capacidad,
+        },
+    }
+
+    with open(config.DATA_VERSION_FILE_2026_10, "w", encoding="utf-8") as f_out10:
+        json.dump(manifiesto_2026_10, f_out10, indent=4, ensure_ascii=False)
+
+    return manifiesto_2026_10
+
+
 def main() -> None:
     rutas_csv, ruta_nomenclatura = asegurar_archivos_csv()
     if len(rutas_csv) == 0:

@@ -230,3 +230,41 @@ MODEL_LOAD_MODE = os.getenv("MIBICI_MODEL_LOAD_MODE", "hybrid").lower()
 # Host y puerto del servidor FastAPI / Uvicorn
 API_HOST = os.getenv("MIBICI_API_HOST", "127.0.0.1")
 API_PORT = int(os.getenv("MIBICI_API_PORT", "8000"))
+
+# ==============================================================================
+# 8. MONITOREO DE DRIFT CON EVIDENTLY, CORTE OCTUBRE 2026 Y A/B TESTING
+# ==============================================================================
+# Periodo actual de producción para monitoreo de drift y evaluación A/B: Octubre 2026
+CURRENT_PERIOD_YEAR_MONTH = (2026, 10)
+CURRENT_PERIOD_LABEL = "2026-10"
+CURRENT_START_DATE = "2026-10-01 00:00:00"
+CURRENT_END_DATE = "2026-10-31 23:59:59"
+
+# Rutas de los archivos crudos del periodo actual (Octubre 2026)
+RAW_TRIP_FILE_2026_10 = RAW_TRIPS_DIR / "2026" / "datos_abiertos_2026_10.csv"
+NOMENCLATURE_FILE_2026_10 = RAW_NOMENCLATURE_DIR / "2026" / "nomenclatura_2026_10.csv"
+
+# Rutas del Parquet limpio, manifiesto SHA-256 y tablas de features de Octubre 2026
+# Se guardan separados para NO alterar datos_mibici.parquet (128979137b46) de entregas 1-4
+PARQUET_FILE_2026_10 = PROCESSED_DATA_DIR / "datos_mibici_2026_10.parquet"
+DATA_VERSION_FILE_2026_10 = PROCESSED_DATA_DIR / "data_version_2026_10.json"
+INTERIM_P1_P2_2026_10_FILE = INTERIM_DATA_DIR / "features_p1_p2_2026_10.parquet"
+INTERIM_P3_2026_10_FILE = INTERIM_DATA_DIR / "features_p3_2026_10.parquet"
+
+# Carpeta de reportes de monitoreo (HTML de Evidently y JSON de métricas de drift / A/B test)
+MONITORING_REPORTS_DIR = REPORTS_DIR / "monitoring"
+EVIDENTLY_HTML_P1_P2 = MONITORING_REPORTS_DIR / "evidently_drift_p1_p2.html"
+EVIDENTLY_HTML_P3 = MONITORING_REPORTS_DIR / "evidently_drift_p3.html"
+DRIFT_SUMMARY_JSON = MONITORING_REPORTS_DIR / "drift_summary_equipo35.json"
+AB_TEST_SUMMARY_JSON = MONITORING_REPORTS_DIR / "ab_testing_results_equipo35.json"
+
+# Tamaño de muestra determinista para reportes interactivos de Evidently en tablas horarias
+# (Evita archivos HTML excesivamente pesados manteniendo representatividad estadística)
+EVIDENTLY_SAMPLE_SIZE = int(os.getenv("MIBICI_EVIDENTLY_SAMPLE_SIZE", "50000"))
+DRIFT_STAT_THRESHOLD = 0.05
+
+# Versiones del Model Registry a comparar en el ejercicio de A/B Testing:
+#   - Variante A (Control): v2 (entrenada con Oct 2022 - Dic 2025, 39 meses)
+#   - Variante B (Tratamiento): v3 (reentrenada con Oct 2022 - Sep 2026, 48 meses + ajuste)
+AB_VARIANT_A_VERSION = "2"
+AB_VARIANT_B_VERSION = "3"

@@ -1,0 +1,107 @@
+{
+    "data_version_short": "3542d1d567e1",
+    "parquet_sha256": "3542d1d567e1bc61b586877a34fa4f3f8c8fcdc95e3d69c612dfb1b45a3a8b71",
+    "date_range": "2026-10",
+    "months_processed": 1,
+    "source_file": "datos_abiertos_2026_10.csv",
+    "source_file_sha256": "0cdfb05299e6db658ac9cc7723494a9704b0749e3671c29c8566826ea889b900",
+    "rows_read_raw": 635532,
+    "rows_written_clean": 589672,
+    "invalid_birth_years_masked": 30,
+    "genero_null_to_na": 4253,
+    "genero_empty_to_na": 0,
+    "short_trips_removed_lt_121s": 45860,
+    "exact_duplicates_removed": 0,
+    "stations_in_nomenclature_catalog": 470,
+    "active_stations_in_trips": 469,
+    "nomenclature_file": {
+        "file": "nomenclatura_2026_10.csv",
+        "encoding": "cp1252",
+        "rows": 470,
+        "sha256": "2da38dd60dcc74ccb95eb8ed1572e107cf5af44dfa6c5a4fbfa4e30f94ef7f3e",
+        "removed_station_ids_vs_2026_09": [
+            22,
+            97,
+            99,
+            109,
+            113,
+            114,
+            116,
+            138,
+            147,
+            149,
+            223,
+            240,
+            250,
+            310
+        ],
+        "capacity_changes_vs_2026_09": [
+            {
+                "Estacion_Id": 32,
+                "name": "(GDL-030) C. Pedro Moreno/ C. Progreso",
+                "dpcapacity_2026_09": 19,
+                "dpcapacity_2026_10": 18
+            },
+            {
+                "Estacion_Id": 139,
+                "name": "(ZPN-045) Av. Tizoc / C. Iztaccíhuatl",
+                "dpcapacity_2026_09": 15,
+                "dpcapacity_2026_10": 19
+            },
+            {
+                "Estacion_Id": 265,
+                "name": "(GDL-192) Calle A1 / Av. Manuel A. Camacho",
+                "dpcapacity_2026_09": 30,
+                "dpcapacity_2026_10": 15
+            },
+            {
+                "Estacion_Id": 350,
+                "name": "(GDL-228)C. La Soledad / Av. Ávila Camacho",
+                "dpcapacity_2026_09": 23,
+                "dpcapacity_2026_10": 22
+            },
+            {
+                "Estacion_Id": 366,
+                "name": "(GDL-271) Román Morales / Álvaro Obregón",
+                "dpcapacity_2026_09": 15,
+                "dpcapacity_2026_10": 14
+            },
+            {
+                "Estacion_Id": 374,
+                "name": "(GDL-260) Churubusco / Álvaro Obregón",
+                "dpcapacity_2026_09": 15,
+                "dpcapacity_2026_10": 14
+            },
+            {
+                "Estacion_Id": 459,
+                "name": "(GDL-325) D.Rodríguez / Álvarez del Castillo",
+                "dpcapacity_2026_09": 19,
+                "dpcapacity_2026_10": 15
+            },
+            {
+                "Estacion_Id": 492,
+                "name": "(GDL-297) Calz. Independencia / Av. República.",
+                "dpcapacity_2026_09": 19,
+                "dpcapacity_2026_10": 15
+            },
+            {
+                "Estacion_Id": 503,
+                "name": "(GDL-332) Agustín Basave / Av. Javier Mina",
+                "dpcapacity_2026_09": 19,
+                "dpcapacity_2026_10": 18
+            },
+            {
+                "Estacion_Id": 509,
+                "name": "(ZPN-100)  C. Popocatépetl / C. Volcán Barú",
+                "dpcapacity_2026_09": 15,
+                "dpcapacity_2026_10": 14
+            },
+            {
+                "Estacion_Id": 514,
+                "name": "(ZPN-101) C. Volcán Quinceo/C. Ignacio C.",
+                "dpcapacity_2026_09": 19,
+                "dpcapacity_2026_10": 18
+            }
+        ]
+    }
+}
