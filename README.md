@@ -32,7 +32,8 @@ Se mantienen la misma partición y las mismas métricas de la entrega anterior p
   * **Filas limpias escritas en Parquet:** `17,036,839` registros (se eliminaron `889,481` viajes menores a 121 segundos y `713` duplicados exactos; se estandarizaron `15,859` años de nacimiento fuera de `[1900, 2026]` y `116,260` valores nulos/vacíos de `Genero`).
   * **Estaciones:** `484` estaciones en catálogo (`473` estaciones con viajes activos en el periodo).
   * El detalle de cada regla de limpieza está en `references/README_proceso_datos_mibici.txt`.
-* **Mecanismo de versionado (`data/processed/data_version.json`):** Al terminar la ingesta, `mibici/dataset.py` calcula con `hashlib.sha256` el hash criptográfico y el conteo de filas de cada uno de los 48 archivos CSV, del catálogo de nomenclatura y del archivo consolidado `datos_mibici.parquet`. La versión oficial actual de los datos es **`128979137b46`** (primeros 12 caracteres del SHA-256 del Parquet).
+* **Mecanismo de versionado (`data/processed/data_version.json`):** Al terminar la ingesta, `mibici/dataset.py` calcula con `hashlib.sha256` el hash criptográfico y el conteo de filas de cada uno de los 48 archivos CSV, del catálogo de nomenclatura y del archivo consolidado `datos_mibici.parquet`. La versión oficial del bloque histórico base (Oct 2022 – Sep 2026) es **`128979137b46`** (primeros 12 caracteres del SHA-256 de `datos_mibici.parquet`).
+* **Lote de producción para monitoreo de *drift* y *A/B Testing* (Octubre 2026):** Se integró de forma independiente el corte mensual `datos_abiertos_2026_10.csv` (`635,532` registros crudos; `589,672` viajes limpios en `datos_mibici_2026_10.parquet`, versión SHA-256 **`3542d1d567e1`** registrada en `data/processed/data_version_2026_10.json`) junto con el catálogo actualizado `nomenclatura_2026_10.csv` (`470` estaciones en catálogo, `469` estaciones activas en viajes).
 * **Trazabilidad en MLflow:** Cada corrida registra la versión de datos como etiqueta y parámetro (`data_version`), sube el manifiesto `data_version.json` como artefacto (`data/`) y registra una muestra del conjunto de entrenamiento con `mlflow.log_input` usando la versión de datos como *digest*.
 * **Privacidad:** Los modelos solo usan variables agregadas por estación y hora (o por estación en P3). Las columnas personales (`Usuario_Id`, `Genero`, `Año_de_nacimiento`) nunca se usan como variables ni se registran en MLflow.
 
@@ -46,7 +47,7 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 ├── .gitignore               <- Excluye datos crudos/procesados, modelos, mlruns/, mlartifacts/ y mlflow.db
 ├── LICENSE
 ├── Makefile                 <- Atajos de línea de comandos para ingesta, servidor y registro
-├── MLproject                <- Definición del MLflow Project (entry points: ingest, train, register)
+├── MLproject                <- Definición del MLflow Project (entry points: ingest, train, register, monitor_drift, ab_test)
 ├── python_env.yaml          <- Entorno del MLflow Project con versiones fijas de Python y dependencias
 ├── pyproject.toml           <- Metadatos del paquete instalable mibici
 ├── requirements.txt         <- Dependencias fijas con versiones exactas (==)
@@ -55,18 +56,21 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 │   ├── external/
 │   ├── interim/             <- Caché local de tablas de features (ignorado en Git)
 │   ├── processed/
-│   │   └── data_version.json <- Manifiesto de versión de datos con hashes SHA-256 individuales
-│   └── raw/                 <- Archivos CSV mensuales y nomenclatura (ignorados en Git)
+│   │   ├── data_version.json         <- Manifiesto SHA-256 del bloque histórico base (128979137b46)
+│   │   └── data_version_2026_10.json <- Manifiesto SHA-256 del lote de producción Oct 2026 (3542d1d567e1)
+│   └── raw/                 <- Archivos CSV mensuales y snapshots versionados de nomenclatura (2026_09 y 2026_10)
 ├── mibici/
 │   ├── __init__.py
 │   ├── config.py            <- Configuración centralizada (rutas, fechas, semilla, hiperparámetros y Registry)
 │   ├── dataset.py           <- Punto de entrada 'ingest': descarga, limpieza, Parquet y data_version.json
 │   ├── features.py          <- Ingeniería de características sin fuga de datos (rezagos temporales .shift)
 │   ├── plots.py             <- Generación de gráficas de desempeño para P1, P2 y P3
-│   └── modeling/
-│       ├── __init__.py
-│       ├── train.py         <- Punto de entrada 'train': baselines, nested runs, candidatos y artefactos
-│       └── predict.py       <- Punto de entrada 'register': registro en Model Registry (@champion) e inferencia
+│   ├── api/                 <- Servicio API REST con FastAPI y carga híbrida desde Model Registry
+│   ├── modeling/
+│   │   ├── __init__.py
+│   │   ├── train.py         <- Punto de entrada 'train': baselines, nested runs, candidatos y artefactos
+│   │   └── predict.py       <- Punto de entrada 'register': registro en Model Registry (@champion) e inferencia
+│   └── monitoring/          <- Observabilidad, Data Drift con Evidently (drift_report.py) y A/B Testing (ab_testing.py)
 ├── models/                  <- Carpeta para modelos locales (ignorada en Git)
 ├── notebooks/
 │   └── 1.0-equipo35-exploracion-mibici.ipynb
@@ -74,8 +78,10 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 │   ├── README_proceso_datos_mibici.txt <- Documentación detallada de las reglas de limpieza
 │   ├── arquitectura_equipo35.md        <- Diagrama y justificación de arquitectura
 │   └── ml_canvas_equipo35.md           <- ML Canvas del proyecto
-└── reports/
-    └── figures/             <- Gráficas de desempeño de los modelos de P1, P2 y P3
+├── reports/
+│   ├── figures/             <- Gráficas de desempeño (P1, P2, P3), evidencias, Evidently Drift y A/B Testing
+│   └── monitoring/          <- Reportes interactivos HTML de Evidently y resúmenes JSON de Drift y A/B Testing
+└── tests/                   <- Suite automatizada de 39 pruebas (PyTest, Reproducibilidad, DeepChecks, Seguridad, API y Evidently)
 ```
 ---
 
@@ -230,6 +236,8 @@ El equipo adoptó **GitHub Flow** con las siguientes reglas:
 2. **Convención de nombres de ramas:** Se utiliza el formato `<tipo>/<descripcion-corta-en-kebab-case>`, por ejemplo:
    * Entrega 1: `feat/ingesta-y-configuracion`, `feat/ingenieria-caracteristicas`, `feat/experimento-base-mlflow`, `docs/readme-y-documentacion`.
    * Entrega 2: `feat/mlflow-project-infra`, `feat/experimentacion-artefactos`, `feat/model-registry`, `docs/readme-reporte-entrega2`.
+   * Entrega 3: `feat/seguridad-y-configuracion`, `test/unitarias-y-reproducibilidad`, `test/validacion-datos-deepchecks`, `feat/recuperacion-modelo-registry`, `feat/api-fastapi-validacion-pydantic`, `feat/contenedor-podman-containerfile`.
+   * Entrega 4 (Monitoreo y A/B Testing): `feat/ingesta-octubre2026-y-config-monitoreo`, `feat/monitoreo-drift-evidently`, `feat/ab-testing-model-registry-v3`, `docs/reporte-drift-abtest-y-pruebas`.
 3. **Convención de mensajes de commit:** Basada en *Conventional Commits* 1.0.0 (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`) seguidos de una descripción concisa en español.
 4. **Fusión con *merge commit*:** Los PR se fusionan con *merge commit* (sin *squash*) para conservar los *commits* que quedan registrados en la etiqueta `git_commit` de cada corrida y versión del Model Registry.
 5. **Exclusión de artefactos pesados:** El archivo `.gitignore` bloquea cualquier archivo `.csv`, `.parquet`, modelos serializados, `mlruns/`, `mlartifacts/` y `mlflow.db` para mantener el repositorio ligero y auditable.
@@ -249,7 +257,7 @@ El equipo adoptó **GitHub Flow** con las siguientes reglas:
 
 ## 9. Pruebas Automatizadas (PyTest + DeepChecks) y Chequeos de Seguridad
 
-En esta entrega se integró al repositorio una suite automatizada de **35 pruebas** en la carpeta dedicada `tests/` (29 pruebas de unidad, reproducibilidad, validación de datos con DeepChecks y seguridad del repositorio, más 6 pruebas de los endpoints de la API REST con FastAPI) junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
+En esta entrega se integró al repositorio una suite automatizada de **39 pruebas** en la carpeta dedicada `tests/` (29 pruebas de unidad, reproducibilidad, validación de datos con DeepChecks y seguridad del repositorio, 6 pruebas de los endpoints de la API REST con FastAPI y 4 pruebas de monitoreo de *drift* con Evidently y *A/B testing*) junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
 
 ### 9.1 Estructura de la Carpeta `tests/`
 
@@ -261,7 +269,8 @@ tests/
 ├── test_reproducibility.py   <- 3 pruebas de reproducibilidad del entrenamiento (P1 Regresión, P2 Clasificación, P3 Clustering)
 ├── test_data_deepchecks.py   <- 5 pruebas de validación de integridad, calidad y drift con DeepChecks para viajes crudos, P1, P2 y P3
 ├── test_security_repo.py     <- 3 pruebas automatizadas de seguridad (.gitignore, .env.example y ausencia de secretos)
-└── test_api_fastapi.py       <- 6 pruebas de integración y validación Pydantic del servicio API REST (FastAPI)
+├── test_api_fastapi.py       <- 6 pruebas de integración y validación Pydantic del servicio API REST (FastAPI)
+└── test_monitoring_drift_ab.py <- 4 pruebas de monitoreo de Data Drift con Evidently, lote Octubre 2026 y A/B Testing
 ```
 
 ---
@@ -279,6 +288,7 @@ tests/
 | `features.generar_features_p3_clustering` | Construcción del perfil operativo y geográfico por estación sobre el conjunto de entrenamiento. | Estaciones sin llegadas registradas (reemplazo seguro de denominador `0` por `1` en `ratio_salidas_llegadas`) y validación de proporciones en el rango `[0.0, 1.0]`. |
 | `plots.*` y `train.leer_argumentos` / `construir_estimador` | Creación de archivos `.png` no vacíos para P1 y P2; reemplazo automático de `"from_config"` por las constantes de `mibici/config.py`. | Rechazo con `ValueError` ante preguntas o nombres de modelos no reconocidos (`p99`, `modelo_inexistente`). |
 | `train.registrar_artefactos_y_modelo` | Registro completo en un servidor SQLite de MLflow del dataset de entrenamiento (`mlflow.log_input` con `digest`), manifiesto en `data/data_version.json`, configuración en `config/config.py` y `config/run_config.json`, gráficas en `plots/` y modelo serializado con `signature`, `input_example` y etiqueta `logged_model_uri`. | Verificación de recuperación e inferencia del modelo registrado desde su URI `models:/m-...` comprobando que las predicciones coincidan exactamente con las del modelo en memoria. |
+| **Monitoreo de *Drift* con Evidently y *A/B Testing*** (`test_monitoring_drift_ab.py`) | Ejecución de `Report([DataDriftPreset(), DataSummaryPreset()])` verificando detección de *drift* en variables desplazadas, generación de reporte HTML, validación del manifiesto SHA-256 `data_version_2026_10.json` y estructura de resultados A/B (`v2` vs. `v3`) para P1, P2 y P3. | Verificación de caso límite con distribuciones de referencia y actual idénticas (`0` columnas con *drift* y `0` celdas faltantes) y manejo de rutas fuera de `PROJ_ROOT` (`tmp_path`). |
 | **Reproducibilidad del entrenamiento** (`test_reproducibility.py`) | Dos ejecuciones independientes con la misma semilla (`RANDOM_SEED = 42`) para **P1** (`HistGradientBoostingRegressor`, `RandomForestRegressor`, `Ridge`), **P2** (`HistGradientBoostingClassifier`, `LogisticRegression`, `RandomForestClassifier`) y **P3** (`KMeans`). | Verificación estricta con `np.testing.assert_allclose` (`rtol=1e-12`, `atol=1e-12`) y `assert_array_equal` de que dos corridas con la misma semilla producen **exactamente las mismas predicciones, probabilidades, asignaciones de cluster y métricas** (`MAE`, `R2`, `F1-Score`, `ROC-AUC` y `Silhouette Score`). |
 
 ---
@@ -339,7 +349,7 @@ Desde la raíz del repositorio con el entorno virtual activado (`source .venv/bi
   ```
 
 * **Modo 2 — Con dataset sintético de respaldo (en un clon limpio sin haber ejecutado aún la ingesta):**
-  Si acabas de clonar el repositorio y deseas correr las 35 pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
+  Si acabas de clonar el repositorio y deseas correr las 39 pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
   ```bash
   MIBICI_TEST_DATA_MODE=synthetic pytest
   # O mediante el comando del Makefile:
@@ -363,11 +373,11 @@ make security
 
 ### 9.6 Evidencia de Ejecución Exitosa de Pruebas y Chequeos de Seguridad
 
-**1. Ejecución exitosa de las 35 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks en P1, P2 y P3 + Seguridad + API) sobre datos reales (`35 passed` sin *warnings*):**
+**1. Ejecución exitosa de las 39 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks en P1, P2 y P3 + Seguridad + API) sobre datos reales (`39 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo real](reports/figures/evidencia_pytest_real.png)
 
-**2. Ejecución exitosa de las 35 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `35 passed` sin *warnings*):**
+**2. Ejecución exitosa de las 39 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `39 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo sintético](reports/figures/evidencia_pytest_synthetic.png)
 
@@ -399,7 +409,7 @@ En esta entrega se empaquetaron los tres modelos campeones del proyecto MiBici (
 │       ├── p3_grupos/            <- Modelo registrado mibici-equipo35-p3-grupos (v2, @champion)
 │       └── registry_manifest.json<- Manifiesto con versión, alias, run_id, git_commit y data_version
 └── tests/
-    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 35 tests)
+    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 39 tests)
 ```
 
 ### 10.2 Opción Elegida para Recuperar los Modelos desde el Model Registry
@@ -422,7 +432,7 @@ Con base en los criterios de arquitectura de sistemas de *Machine Learning* (Huy
 El módulo `mibici/api/schemas.py` valida todas las peticiones antes de invocar los modelos:
 * **Restricción de rangos operativos:** Verifica tipos numéricos y dominios válidos del AMG (`hora` $\in [0, 23]$, `dia_semana` $\in [0, 6]$, `mes` $\in [1, 12]$, `dpcapacity` $> 0$, `latitude` $\in [20.0, 21.5]$, `longitude` $\in [-104.0, -102.5]$ y proporciones $\in [0.0, 1.0]$).
 * **Protección de privacidad (`extra="forbid"`):** Cualquier petición que incluya campos no reconocidos o datos personales de usuarios (`Usuario_Id`, `Genero`, `Año_de_nacimiento`) es rechazada automáticamente con código HTTP `422 Unprocessable Entity`.
-* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), elevando la suite del repositorio a **35 pruebas automatizadas (`35 passed`)** y manteniendo **0 alertas** en `bandit` y `pip-audit`.
+* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), integrándose a la suite del repositorio de **39 pruebas automatizadas (`39 passed`)** y manteniendo **0 alertas** en `bandit` y `pip-audit`.
 
 ### 10.5 Instrucciones para Construir la Imagen, Levantar el Contenedor y Consumir la API con Podman
 
@@ -601,27 +611,141 @@ podman stop mibici-api
 
 ![Evidencia de la API REST en contenedor Podman respondiendo peticiones de prueba](reports/figures/evidencia_api_podman.png)
 
-## 11. Referencias Bibliográficas
+## 11. Monitoreo de Data Drift con Evidently, A/B Testing y Continuous Training
+
+En esta entrega se dotó al proyecto MiBici de una capa de **observabilidad, detección de *drift* con Evidently (`v0.7.23`) y evaluación mediante *A/B testing*** sobre los tres modelos registrados en el Model Registry de MLflow (`mibici-equipo35-p1-demanda`, `mibici-equipo35-p2-riesgo` y `mibici-equipo35-p3-grupos`), conservando intactos los artefactos y entregas anteriores.
+
+### 11.1 Archivos Integrados al Repositorio para Monitoreo y A/B Testing
+
+```text
+├── MLproject                                       <- Añade entry points "monitor_drift" y "ab_test"
+├── Makefile                                        <- Añade comandos "make drift-report" y "make ab-test"
+├── data/
+│   ├── raw/nomenclatura/2026/
+│   │   └── nomenclatura_2026_10.csv                <- Catálogo oficial actualizado de Octubre 2026 (470 estaciones)
+│   └── processed/
+│       └── data_version_2026_10.json               <- Manifiesto SHA-256 del lote de producción Octubre 2026 (3542d1d567e1)
+├── mibici/
+│   └── monitoring/
+│       ├── __init__.py                             <- Inicializador del paquete de observabilidad y monitoreo
+│       ├── drift_report.py                         <- Reportes HTML/JSON/PNG de Data Drift y Data Quality con Evidently
+│       └── ab_testing.py                           <- Reentrenamiento (v3), registro en MLflow y evaluación A/B Testing
+├── reports/
+│   ├── figures/
+│   │   ├── drift_evidently_p1_p2_variables.png     <- Magnitud de drift por variable en P1 y P2 (Evidently)
+│   │   ├── drift_evidently_distribuciones_clave.png<- Cambio de distribución en variables operativas críticas
+│   │   ├── drift_evidently_p3_perfiles.png         <- Magnitud de drift en perfiles de estaciones P3 (Evidently)
+│   │   └── ab_testing_comparacion_modelos.png      <- Comparación de desempeño Variante A (v2) vs. Variante B (v3)
+│   └── monitoring/
+│       ├── evidently_drift_p1_p2.html              <- Reporte interactivo HTML de Evidently para P1 y P2
+│       ├── evidently_drift_p3.html                 <- Reporte interactivo HTML de Evidently para P3
+│       ├── drift_summary_equipo35.json             <- Resumen cuantitativo de Data Drift y Data Quality
+│       └── ab_testing_results_equipo35.json        <- Métricas y pruebas estadísticas pareadas del A/B Testing
+└── tests/
+    └── test_monitoring_drift_ab.py                 <- 4 pruebas automatizadas de Evidently, lote 2026-10 y A/B Testing (total: 39 tests)
+```
+
+### 11.2 Definición y Justificación de los Conjuntos de Datos (Referencia vs. Actual)
+
+* **Conjunto de Referencia (*Reference* — `Octubre 2022 a Diciembre 2025`, 39 meses):** Corresponde exactamente a la partición de entrenamiento con la que se ajustaron las versiones iniciales en producción (`v2` de P1, P2 y P3) sobre el archivo consolidado `datos_mibici.parquet` (versión `128979137b46`) y el catálogo `nomenclatura_2026_09.csv` (`484` estaciones en catálogo, `373` estaciones activas en entrenamiento).
+* **Conjunto Actual de Producción (*Current* — `Octubre 2026`, 1 mes completo):** Corresponde al nuevo corte mensual publicado en el portal de Datos Abiertos de MiBici (`datos_abiertos_2026_10.csv`, hash SHA-256 `0cdfb05299e6`) junto con la actualización del catálogo `nomenclatura_2026_10.csv` (codificación `cp1252`, hash `2da38dd60dcc`). Tras aplicar las mismas reglas oficiales de limpieza en `mibici/dataset.py`, el lote de Octubre 2026 contiene **`589,672` viajes limpios** (de `635,532` registros crudos; versión SHA-256 `3542d1d567e1`), generando **`208,912` observaciones estación $\times$ hora** para P1/P2 y **`469` estaciones activas** para P3.
+* **Justificación técnica y operativa:** Octubre de 2026 constituye un bloque estrictamente posterior que nunca fue observado durante la fase de desarrollo inicial (`2022-10` a `2026-09`) y concentra dos fuentes reales de *drift*: 1) la transición estacional del fin del temporal de lluvias (junio–septiembre) hacia el mes de mayor actividad recreativa y cultural en el AMG (Fiestas de Octubre), y 2) la reconfiguración física de la red en `nomenclatura_2026_10.csv`, donde se dieron de baja **14 estaciones** (`IDs: 22, 97, 99, 109, 113, 114, 116, 138, 147, 149, 223, 240, 250, 310`) y se modificó la capacidad instalada (`dpcapacity`) en **11 estaciones** (por ejemplo, `GDL-192` pasó de 30 a 15 anclajes y `ZPN-045` de 15 a 19 anclajes).
+
+### 11.3 Resultados e Interpretación del Reporte de Drift con Evidently
+
+Utilizando la API vigente de `evidently==0.7.23` (`Report([DataDriftPreset(), DataSummaryPreset()], include_tests=True)`), se comparó una muestra determinista de `50,000` observaciones de referencia contra `50,000` observaciones de Octubre 2026 en P1/P2 (usando distancia de Wasserstein normalizada y distancia de Jensen-Shannon con umbral $\ge 0.10$), así como las `373` estaciones de referencia contra las `469` estaciones activas en P3 (usando pruebas de Kolmogorov-Smirnov y Chi-cuadrada con umbral $p < 0.05$).
+
+#### A) Hallazgos en los Modelos Horarios P1 (Regresión) y P2 (Clasificación) — Drift en `9/19` columnas (`47.37%`)
+
+| Variable | Rol en el Modelo | Método Evidently | Puntaje | Media Ref. | Media Oct 2026 | Cambio (%) | Estado |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| `viajes_iniciados` | Etiqueta P1 (Demanda) | Wasserstein (norm) | `0.1429` | `2.4048` | `2.8257` | `+17.50%` | **DRIFT** |
+| `media_movil_3_iniciados` | Predictor de tendencia | Wasserstein (norm) | `0.1729` | `2.4036` | `2.8147` | `+17.10%` | **DRIFT** |
+| `lag_2_iniciados` | Predictor de rezago ($t-2$) | Wasserstein (norm) | `0.1505` | `2.3946` | `2.8215` | `+17.83%` | **DRIFT** |
+| `lag_24_iniciados` | Predictor de rezago ($t-24$) | Wasserstein (norm) | `0.1428` | `2.4168` | `2.8223` | `+16.78%` | **DRIFT** |
+| `lag_1_iniciados` | Predictor de rezago ($t-1$) | Wasserstein (norm) | `0.1423` | `2.4082` | `2.8214` | `+17.16%` | **DRIFT** |
+| `lag_1_terminados` | Predictor de llegadas ($t-1$) | Wasserstein (norm) | `0.1282` | `2.4191` | `2.8275` | `+16.88%` | **DRIFT** |
+| `dpcapacity` | Capacidad de estación | Wasserstein (norm) | `0.1159` | `17.0686` | `17.1449` | `+0.45%` | **DRIFT** |
+| `longitude` | Coordenada espacial | Wasserstein (norm) | `0.1422` | `-103.3618` | `-103.3612` | `+0.00%` | **DRIFT** |
+| `mes` | Calendario | Wasserstein (norm) | `1.0711` | `6.8298` | `10.0000` | `+46.42%` | **DRIFT** |
+| `lag_1_ratio_capacidad` | Predictor clave P2 | Wasserstein (norm) | `0.0846` | `0.1027` | `0.0939` | `-8.60%` | ESTABLE |
+| `en_riesgo` | Etiqueta P2 (Riesgo $\ge 30\%$) | Jensen-Shannon | `0.0128` | `0.0455` | `0.0382` | `-15.96%` | ESTABLE |
+| `pred_p1_viajes` | Predicción Modelo P1 `v2` | Wasserstein (norm) | `0.0520` | `2.4123` | `2.5213` | `+4.52%` | ESTABLE |
+| `pred_p2_riesgo` | Predicción Modelo P2 `v2` | Jensen-Shannon | `0.0072` | `0.2795` | `0.2704` | `-3.26%` | ESTABLE |
+
+![Resumen de Data Drift por variable en P1 y P2 con Evidently](reports/figures/drift_evidently_p1_p2_variables.png)
+
+![Comparación de distribuciones en variables afectadas por drift](reports/figures/drift_evidently_distribuciones_clave.png)
+
+#### B) Hallazgos en el Modelo de Perfiles de Estaciones P3 (Clustering) — Drift en `6/10` columnas (`60.00%`)
+
+* **Incremento de intensidad operativa y reducción de duración:** `promedio_salidas_diarias` subió de `31.28` a `40.56` viajes/día (**`+29.67%`**, $p = 0.0021$), mientras que `duracion_mediana_min` bajó de `10.28` a `8.57` min (**`-16.64%`**, $p < 0.0001$), reflejando una mayor rotación de viajes cortos en las 469 estaciones activas.
+* **Desplazamiento en la asignación de grupos (`cluster_asignado`):** La distribución de etiquetas asignadas por el modelo `v2` presentó *drift* significativo (Chi-cuadrada $p < 0.0001$), concentrando el `42.0%` de las estaciones en un solo grupo (`clúster 3`: 197 estaciones) debido a la expansión de la red respecto a las 373 estaciones de 2025.
+
+![Resumen de Data Drift en perfiles de estaciones P3 con Evidently](reports/figures/drift_evidently_p3_perfiles.png)
+
+### 11.4 Entrenamiento de la Versión Alternativa (`v3`) y Resultados del A/B Testing
+
+Se entrenó una segunda versión alternativa (**Variante B: `v3`**) para cada modelo incorporando el histórico completo previo al mes de prueba (**Octubre 2022 – Septiembre 2026**, 48 meses, ponderando las observaciones de 2026) y actualizando las capacidades con `nomenclatura_2026_10.csv` (`max_iter=300, max_depth=12, learning_rate=0.06` en P1 y P2; `KMeans K=4, n_init=20` sobre las 469 estaciones activas de 2026 en P3). Las tres versiones se registraron como **`v3`** en el Model Registry de MLflow y se compararon contra la **Variante A (`v2`)** sobre el mismo conjunto de evaluación de **Octubre 2026 (`208,912` observaciones horarias y `469` estaciones)**:
+
+| Modelo / Tarea | Métrica Evaluada (Oct 2026) | Variante A (`v2` — Train Dic 2025) | Variante B (`v3` — Reentrenada Sep 2026) | Prueba $t$ Pareada ($t$ / $p\text{-valor}$) | Decisión y Alias en Registry |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **P1 (`mibici-equipo35-p1-demanda`)** | `MAE` Global / Hora Pico<br>`RMSE` / $R^2$<br>Sesgo Medio (*Bias*) | `1.3572` / `1.5718`<br>`2.1109` / `0.6511`<br>`-0.3003` | **`1.3427`** / **`1.5537`**<br>**`2.0666`** / **`0.6656`**<br>**`-0.2810`** | $t = 19.1902$<br>$p = 5.26 \times 10^{-82}$ | **Gana `v3`** (`v3` $\to$ `@champion`, `v2` $\to$ `@challenger`) |
+| **P2 (`mibici-equipo35-p2-riesgo`)** | `F1-Score` / `Precision`<br>`Recall` / `ROC-AUC`<br>`PR-AUC` / `Brier Score` | **`0.1913`** / **`0.1086`**<br>`0.8055` / `0.8574`<br>`0.2448` / **`0.1563`** | `0.1873` / `0.1056`<br>**`0.8280`** / **`0.8622`**<br>**`0.2512`** / `0.1649` | $t = -111.1332$<br>$p < 10^{-100}$ | **Se mantiene `v2`** (`v2` $\to$ `@champion`, `v3` $\to$ `@challenger`) |
+| **P3 (`mibici-equipo35-p3-grupos`)** | `Silhouette Score`<br>`Davies-Bouldin Index`<br>Dist. Centroide / Share Mín. | `0.1533`<br>`1.8117`<br>`2.3685` / `10.45%` | **`0.1601`**<br>**`1.7937`**<br>**`2.3142`** / **`19.19%`** | $t = 2.4453$<br>$p = 0.0148$ | **Gana `v3`** (`v3` $\to$ `@champion`, `v2` $\to$ `@challenger`) |
+
+![Resultados del A/B Testing en Octubre 2026: Variante A (v2) vs Variante B (v3)](reports/figures/ab_testing_comparacion_modelos.png)
+
+### 11.5 Recomendación sobre Reentrenamiento Continuo (*Continuous Training*)
+
+Con base en la evidencia empírica de Evidently y del *A/B Testing*, se recomienda implementar una estrategia diferenciada de **Continuous Training (CT) gobernada por compuerta de validación A/B** (Huyen, 2022; Treveil et al., 2020):
+1. **Disparadores híbridos (*Triggers*):** Ejecutar el pipeline de monitoreo con Evidently al cierre de cada publicación mensual de MiBici y activar el reentrenamiento automático cuando: a) más del `35%` de las variables predictoras presenten *drift* significativo (`drift_share >= 0.35`), b) la demanda media horaria se desvíe más de $\pm 10\%$ respecto a la media predicha, o c) el catálogo de nomenclatura registre bajas de estaciones o cambios en `dpcapacity`.
+2. **Promoción selectiva por modelo (Compuerta `@champion` / `@challenger`):** En **P1** y **P3**, donde el *drift* de volumen (`+17.5%` horario y `+29.7%` diario) degradaba las versiones entrenadas en 2025, el reentrenamiento mensual con ponderación reciente mejoró significativamente todas las métricas, por lo que `v3` se promueve a `@champion`. En cambio, en **P2**, dado que la proporción de eventos críticos (`en_riesgo`) permaneció estable (`score = 0.0128`), `v2` conserva mejor calibración y mayor `F1-Score` al umbral operativo de `0.50`, demostrando por qué ningún modelo reentrenado debe desplegarse en producción sin superar primero una evaluación A/B pareada.
+
+### 11.6 Instrucciones para Ejecutar el Monitoreo de Drift y el A/B Testing
+
+Con el servidor local de MLflow activo en `http://127.0.0.1:5000` y el entorno `.venv` activado:
+
+```bash
+export MLFLOW_TRACKING_URI="http://127.0.0.1:5000"
+export MLFLOW_EXPERIMENT_NAME="mibici-equipo35"
+
+# 1. Generar los reportes HTML/JSON y gráficas PNG de Data Drift con Evidently
+python -m mibici.monitoring.drift_report
+# O mediante Makefile / MLflow Project:
+make drift-report
+mlflow run . -e monitor_drift --env-manager=local
+
+# 2. Entrenar/registrar la versión alternativa v3 y ejecutar el A/B Testing (v2 vs v3)
+python -m mibici.monitoring.ab_testing
+# O mediante Makefile / MLflow Project:
+make ab-test
+mlflow run . -e ab_test --env-manager=local
+```
+
+## 12. Referencias Bibliográficas
 
 * Acuerdo DIELAG ACU 065/2022. (2022, 13 de octubre). Acuerdo del Ciudadano Gobernador Constitucional del Estado Libre y Soberano de Jalisco, mediante el cual se abroga el diverso acuerdo DIELAG ACU 016/2022. *Periódico Oficial "El Estado de Jalisco"*, Tomo CDV(28, Sección IV), 3–7.
-* Colvin, S., Jolibois, E., Ramezani, H., Garcia Badaracco, A., Dorsey, T., Montague, D., Matveenko, S., Trylesinski, M., Runkle, S., Hewitt, D., & Hall, A. (2024). *Pydantic documentation: Data validation using Python type hints*. https://docs.pydantic.dev/latest/
-* Conventional Commits. (s.f.). *Conventional Commits 1.0.0* [Especificación]. https://www.conventionalcommits.org/es/v1.0.0/
-* Deepchecks. (2024). *Deepchecks documentation: Continuous validation for machine learning*. https://docs.deepchecks.com/stable/getting-started/welcome.html
-* DrivenData. (2024). *Cookiecutter Data Science* (Versión 2) [Documentación]. https://cookiecutter-data-science.drivendata.org/
-* Encode. (2024). *Uvicorn: An ASGI web server implementation for Python*. https://www.uvicorn.org/
-* Google. (2026). Gemini (basado en Gemini 3.8 Flash) [Modelo de lenguaje grande], utilizado para la revisión de redacción y código.
+* Colvin, S., Jolibois, E., Ramezani, H., Garcia Badaracco, A., Dorsey, T., Montague, D., Matveenko, S., Trylesinski, M., Runkle, S., Hewitt, D., & Hall, A. (2024). *Pydantic documentation: Data validation using Python type hints*. [https://docs.pydantic.dev/latest/](https://docs.pydantic.dev/latest/)
+* Conventional Commits. (s.f.). *Conventional Commits 1.0.0* [Especificación]. [https://www.conventionalcommits.org/es/v1.0.0/](https://www.conventionalcommits.org/es/v1.0.0/)
+* Deepchecks. (2024). *Deepchecks documentation: Continuous validation for machine learning*. [https://docs.deepchecks.com/stable/getting-started/welcome.html](https://docs.deepchecks.com/stable/getting-started/welcome.html)
+* DrivenData. (2024). *Cookiecutter Data Science* (Versión 2) [Documentación]. [https://cookiecutter-data-science.drivendata.org/](https://cookiecutter-data-science.drivendata.org/)
+* Encode. (2024). *Uvicorn: An ASGI web server implementation for Python*. [https://www.uvicorn.org/](https://www.uvicorn.org/)
+* Evidently AI. (2023, 28 de septiembre). *Tutorial de Evidently* [Serie de videos]. YouTube. [https://www.youtube.com/@EvidentlyAI](https://www.youtube.com/@EvidentlyAI)
+* Evidently AI. (2026). *Evidently documentation: Data and ML checks* (Versión 0.7.23). Recuperado el 18 de junio de 2026 de [https://docs.evidentlyai.com/introduction](https://docs.evidentlyai.com/introduction)
+* Google. (2026). *Gemini* (Versión Gemini 3.8) [Modelo de lenguaje grande], utilizado para la revisión de redacción y código. [https://gemini.google.com/](https://gemini.google.com/)
 * Grossmann, J., Wiesbrock, H., & Motta, M. (2021). *Testing ML-based systems*. European Telecommunications Standards Institute (ETSI).
 * Huyen, C. (2022). *Designing machine learning systems: An iterative process for production-ready applications*. O'Reilly Media.
-* Krekel, H., Oliveira, B., Pfannschmidt, R., Bruynooghe, F., Laugher, B., & Bruhin, F. (2024). *pytest: Helps you write better programs*. https://docs.pytest.org/en/stable/
+* Krekel, H., Oliveira, B., Pfannschmidt, R., Bruynooghe, F., Laugher, B., & Bruhin, F. (2024). *pytest: Helps you write better programs*. [https://docs.pytest.org/en/stable/](https://docs.pytest.org/en/stable/)
 * Lakshmanan, V., Robinson, S., & Munn, M. (2020). *Machine learning design patterns: Solutions to common challenges in data preparation, model building, and MLOps*. O'Reilly Media.
-* MiBici. (2026). *Datos abiertos del sistema de bicicletas públicas MiBici* [Conjunto de datos]. Agencia Metropolitana de Servicios de Infraestructura para la Movilidad del Área Metropolitana de Guadalajara. https://mibici.net/es/datos-abiertos/
-* MLflow. (2024). *MLflow documentation: MLflow Tracking, Model Registry and Deployment*. https://mlflow.org/docs/latest/ml/deployment/
-* Open Container Initiative. (2024). *OCI Image Format Specification*. Linux Foundation. https://github.com/opencontainers/image-spec
-* Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., & Duchesnay, É. (2011). Scikit-learn: Machine learning in Python. *Journal of Machine Learning Research*, 12(85), 2825–2830. http://jmlr.org/papers/v12/pedregosa11a.html
-* Podman. (2026). *Podman documentation*. Red Hat / Containers Organization. https://docs.podman.io/en/latest/
-* PyCQA. (2024). *Bandit: A tool designed to find common security issues in Python code*. Python Code Quality Authority. https://bandit.readthedocs.io/en/latest/
-* Python Packaging Authority. (2024). *pip-audit: Audits Python environments and dependency trees for known vulnerabilities*. https://pypi.org/project/pip-audit/
-* Ramírez, S. (2024). *FastAPI documentation: FastAPI in containers - Docker*. https://fastapi.tiangolo.com/deployment/docker/
-* Red Hat. (2026). *What is Podman?*. https://www.redhat.com/en/topics/containers/what-is-podman
+* MiBici. (2026). *Datos abiertos del sistema de bicicletas públicas MiBici* [Conjunto de datos]. Agencia Metropolitana de Servicios de Infraestructura para la Movilidad del Área Metropolitana de Guadalajara. [https://mibici.net/es/datos-abiertos/](https://mibici.net/es/datos-abiertos/)
+* MLflow. (2026). *MLflow documentation: MLflow Tracking, Model Registry and Deployment*. [https://mlflow.org/docs/latest/ml/model-registry/](https://mlflow.org/docs/latest/ml/model-registry/)
+* Open Container Initiative. (2024). *OCI Image Format Specification*. Linux Foundation. [https://github.com/opencontainers/image-spec](https://github.com/opencontainers/image-spec)
+* Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., & Duchesnay, É. (2011). Scikit-learn: Machine learning in Python. *Journal of Machine Learning Research*, 12(85), 2825–2830. [http://jmlr.org/papers/v12/pedregosa11a.html](http://jmlr.org/papers/v12/pedregosa11a.html)
+* Podman. (2026). *Podman documentation*. Red Hat / Containers Organization. [https://docs.podman.io/en/latest/](https://docs.podman.io/en/latest/)
+* PyCQA. (2024). *Bandit: A tool designed to find common security issues in Python code*. Python Code Quality Authority. [https://bandit.readthedocs.io/en/latest/](https://bandit.readthedocs.io/en/latest/)
+* Python Packaging Authority. (2024). *pip-audit: Audits Python environments and dependency trees for known vulnerabilities*. [https://pypi.org/project/pip-audit/](https://pypi.org/project/pip-audit/)
+* Ramírez, S. (2024). *FastAPI documentation: FastAPI in containers - Docker*. [https://fastapi.tiangolo.com/deployment/docker/](https://fastapi.tiangolo.com/deployment/docker/)
+* Red Hat. (2026). *What is Podman?*. [https://www.redhat.com/en/topics/containers/what-is-podman](https://www.redhat.com/en/topics/containers/what-is-podman)
 * Treveil, M., Omont, N., Stenac, C., Lefevre, K., Phan, D., Zentici, J., Lavoillotte, A., Miyazaki, M., & Heidmann, L. (2020). *Introducing MLOps: How to scale machine learning in the enterprise*. O'Reilly Media.
 * Wilson, B. (2022). *Machine learning engineering in action*. Manning Publications.
