@@ -38,6 +38,8 @@ addopts = "-v --tb=short"
 filterwarnings = [
     "ignore:codecs\\.open\\(\\) is deprecated:DeprecationWarning",
     "ignore:The ``noload`` loader strategy is deprecated:DeprecationWarning",
+    "ignore:numpy\\.core is deprecated:DeprecationWarning",
+    "ignore:Starting with pandas version 4\\.0:Warning",
 ]
 
 [tool.bandit]
