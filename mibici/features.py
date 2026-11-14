@@ -1,29 +1,35 @@
 """
 Módulo de ingeniería de características (Feature Engineering) del proyecto MiBici.
+
 Contiene funciones lineales, comentadas paso a paso y reutilizables para construir
 las tablas de variables de las tres preguntas del proyecto (P1, P2 y P3),
 garantizando que NO exista fuga de información del futuro (data leakage).
 """
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-from mibici import config
+from mibici import config, dataset
 
 
 # ==============================================================================
 # FUNCIÓN AUXILIAR: CARGAR CATÁLOGO DE NOMENCLATURA DE ESTACIONES
 # ==============================================================================
-def cargar_nomenclatura() -> pd.DataFrame:
+def cargar_nomenclatura(ruta_nomenclatura: Path | None = None) -> pd.DataFrame:
     """
-    Lee el archivo CSV de nomenclatura de estaciones (nomenclatura_2026_09.csv)
-    y devuelve un DataFrame limpio con id, name, latitude, longitude y dpcapacity.
+    Lee el archivo CSV de nomenclatura de estaciones (por defecto nomenclatura_2026_09.csv,
+    o bien nomenclatura_2026_10.csv para el monitoreo del periodo actual) detectando
+    automáticamente su codificación (utf-8-sig o cp1252), y devuelve un DataFrame limpio
+    con Estacion_Id, name, latitude, longitude y dpcapacity.
     """
-    ruta = config.NOMENCLATURE_FILE
+    ruta = ruta_nomenclatura if ruta_nomenclatura is not None else config.NOMENCLATURE_FILE
     if not ruta.exists():
-        ruta = config.RAW_DATA_DIR / "nomenclatura_2026_09.csv"
+        ruta = config.RAW_DATA_DIR / ruta.name
 
-    df_nom = pd.read_csv(ruta, encoding="utf-8-sig")
+    codificacion = dataset.detectar_codificacion(ruta)
+    df_nom = pd.read_csv(ruta, encoding=codificacion)
     df_nom = df_nom.rename(columns={"id": "Estacion_Id"})
     df_nom["Estacion_Id"] = df_nom["Estacion_Id"].astype("int64")
     return df_nom[["Estacion_Id", "name", "latitude", "longitude", "dpcapacity"]]
@@ -32,7 +38,9 @@ def cargar_nomenclatura() -> pd.DataFrame:
 # ==============================================================================
 # FUNCIÓN 1: CONSTRUIR TABLA BASE HORARIA POR ESTACIÓN (PARA P1 Y P2)
 # ==============================================================================
-def construir_tabla_horaria_estaciones(df_viajes: pd.DataFrame) -> pd.DataFrame:
+def construir_tabla_horaria_estaciones(
+    df_viajes: pd.DataFrame, ruta_nomenclatura: Path | None = None
+) -> pd.DataFrame:
     """
     Recibe el DataFrame de viajes limpios y cuenta cuántos viajes se iniciaron
     (salidas) y cuántos terminaron (llegadas) en cada estación y en cada hora.
@@ -77,7 +85,11 @@ def construir_tabla_horaria_estaciones(df_viajes: pd.DataFrame) -> pd.DataFrame:
     tabla_horaria["Estacion_Id"] = tabla_horaria["Estacion_Id"].astype("int64")
 
     # 5. Cruzamos con el catálogo de nomenclatura para obtener capacidad y ubicación
-    df_nom = cargar_nomenclatura()
+    if ruta_nomenclatura is None:
+        df_nom = cargar_nomenclatura()
+    else:
+        df_nom = cargar_nomenclatura(ruta_nomenclatura=ruta_nomenclatura)
+
     tabla_horaria = pd.merge(
         tabla_horaria,
         df_nom[["Estacion_Id", "latitude", "longitude", "dpcapacity"]],
@@ -126,7 +138,7 @@ def generar_features_p1_y_p2(tabla_horaria: pd.DataFrame) -> pd.DataFrame:
     # 3. Variables de rezago (lags) por estación usando ÚNICAMENTE el pasado (.shift)
     grupo_estacion = df.groupby("Estacion_Id", sort=False)
 
-    # Viajes iniciados en la observación previa (t-1), hace 24 obs y hace 168 obs
+    # Viajes iniciados en la observación previa (t-1), hace 2 obs y hace 24 obs
     df["lag_1_iniciados"] = grupo_estacion["viajes_iniciados"].shift(1)
     df["lag_2_iniciados"] = grupo_estacion["viajes_iniciados"].shift(2)
     df["lag_24_iniciados"] = grupo_estacion["viajes_iniciados"].shift(24)
@@ -175,14 +187,16 @@ def generar_features_p1_y_p2(tabla_horaria: pd.DataFrame) -> pd.DataFrame:
 # ==============================================================================
 # FUNCIÓN 3: GENERAR PERFIL POR ESTACIÓN PARA P3 (CLUSTERING)
 # ==============================================================================
-def generar_features_p3_clustering(df_viajes_entrenamiento: pd.DataFrame) -> pd.DataFrame:
+def generar_features_p3_clustering(
+    df_viajes_entrenamiento: pd.DataFrame, ruta_nomenclatura: Path | None = None
+) -> pd.DataFrame:
     """
     Construye una tabla resumen donde cada fila es una estación de MiBici y cada
     columna describe su patrón de uso habitual y su ubicación geográfica.
 
     Garantía contra fuga de información:
-    Recibe únicamente los viajes del conjunto de entrenamiento (hasta TRAIN_END_DATE)
-    para evitar usar datos futuros al definir los grupos de estaciones.
+    Recibe únicamente los viajes del conjunto evaluado (por ejemplo, hasta TRAIN_END_DATE
+    en entrenamiento o del mes de Octubre 2026 en monitoreo) para definir los perfiles.
     """
     df = df_viajes_entrenamiento.copy()
 
@@ -195,7 +209,7 @@ def generar_features_p3_clustering(df_viajes_entrenamiento: pd.DataFrame) -> pd.
     df["es_pico_manana"] = df["hora_inicio"].isin([7, 8, 9]).astype("float64")
     df["es_pico_tarde"] = df["hora_inicio"].isin([17, 18, 19]).astype("float64")
 
-    # Número total de días en el conjunto de entrenamiento para calcular el promedio diario
+    # Número total de días en el conjunto evaluado para calcular el promedio diario
     dias_totales = max(
         1,
         (
@@ -232,7 +246,11 @@ def generar_features_p3_clustering(df_viajes_entrenamiento: pd.DataFrame) -> pd.
     perfil_estaciones = pd.merge(
         resumen_origen, resumen_destino, on="Estacion_Id", how="inner"
     )
-    df_nom = cargar_nomenclatura()
+    if ruta_nomenclatura is None:
+        df_nom = cargar_nomenclatura()
+    else:
+        df_nom = cargar_nomenclatura(ruta_nomenclatura=ruta_nomenclatura)
+
     perfil_estaciones = pd.merge(
         perfil_estaciones, df_nom, on="Estacion_Id", how="inner"
     )
@@ -246,4 +264,5 @@ def generar_features_p3_clustering(df_viajes_entrenamiento: pd.DataFrame) -> pd.
     perfil_estaciones = perfil_estaciones.sort_values("Estacion_Id").reset_index(
         drop=True
     )
+
     return perfil_estaciones

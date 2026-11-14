@@ -22,6 +22,7 @@
 /data/processed/*
 !/data/processed/.gitkeep
 !/data/processed/data_version.json
+!/data/processed/data_version_2026_10.json
 *.parquet
 *.csv
 
@@ -33,6 +34,7 @@
 !/data/raw/nomenclatura/2026/
 /data/raw/nomenclatura/2026/*
 !/data/raw/nomenclatura/2026/nomenclatura_2026_09.csv
+!/data/raw/nomenclatura/2026/nomenclatura_2026_10.csv
 
 # Modelos serializados locales (no se entregan en Git)
 /models/*
