@@ -38,3 +38,11 @@ entry_points:
     parameters:
       action: {type: string, default: "register_and_verify"}
     command: "python -m mibici.modeling.predict --action {action}"
+
+  # Punto de entrada 4: Monitoreo de Data Drift y Calidad de Datos con Evidently (Entregable 8)
+  monitor_drift:
+    command: "python -m mibici.monitoring.drift_report"
+
+  # Punto de entrada 5: Entrenamiento de versión alternativa (v3) y evaluación A/B Testing
+  ab_test:
+    command: "python -m mibici.monitoring.ab_testing"

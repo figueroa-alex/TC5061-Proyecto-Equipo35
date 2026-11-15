@@ -1,150 +1,56 @@
-#################################################################################
-# GLOBALS                                                                       #
-#################################################################################
+# ==============================================================================
+# CONTAINERFILE (ESTÁNDAR OCI) - SERVICIO API REST PROYECTO MIBICI (EQUIPO 35)
+# Compatible con Podman (podman build) y Docker (docker build)
+# ==============================================================================
 
-PROJECT_NAME = TC5061-Proyecto-Equipo35
-PYTHON_VERSION = 3.14.3
-PYTHON_INTERPRETER = python
+# 1. Imagen base oficial de Python con la misma versión del proyecto (3.14.3)
+FROM docker.io/library/python:3.14.3-slim
 
-#################################################################################
-# COMMANDS                                                                      #
-#################################################################################
+# 2. Variables de entorno para optimizar Python y configurar la API dentro del contenedor
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # Cuando el servidor MLflow corre en la máquina host, el contenedor se conecta a:
+    MLFLOW_TRACKING_URI="http://host.containers.internal:5000" \
+    MLFLOW_EXPERIMENT_NAME="mibici-equipo35" \
+    MIBICI_MODEL_ALIAS="champion" \
+    MIBICI_MODEL_VERSION="2" \
+    # Estrategia híbrida: intenta MLFLOW_TRACKING_URI y usa models/registry_bundle como respaldo
+    MIBICI_MODEL_LOAD_MODE="hybrid" \
+    MIBICI_API_HOST="0.0.0.0" \
+    MIBICI_API_PORT="8000"
 
+# 3. Directorio de trabajo dentro del contenedor
+WORKDIR /app
 
-## Install Python dependencies
-.PHONY: requirements
-requirements:
-	$(PYTHON_INTERPRETER) -m pip install -U pip
-	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
-	
+# 4. Instalar librería del sistema libgomp1 (requerida por Scikit-Learn HistGradientBoosting)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
+# 5. Copiar e instalar las dependencias de Python (aprovechando el caché de capas OCI)
+COPY requirements.txt /app/requirements.txt
+RUN grep -v "^-e " /app/requirements.txt > /tmp/requirements_docker.txt \
+    && pip install --upgrade pip \
+    && pip install -r /tmp/requirements_docker.txt \
+    && rm /tmp/requirements_docker.txt
 
+# 6. Copiar metadatos del paquete, código fuente y modelos descargados del Model Registry
+COPY pyproject.toml README.md LICENSE .env.example /app/
+COPY mibici /app/mibici
+COPY models/registry_bundle /app/models/registry_bundle
+COPY data/processed/data_version.json /app/data/processed/data_version.json
 
-## Delete all compiled Python files
-.PHONY: clean
-clean:
-	find . -type f -name "*.py[co]" -delete
-	find . -type d -name "__pycache__" -delete
+# 7. Instalar el paquete local 'mibici' sin reinstalar dependencias
+RUN pip install --no-deps -e .
 
+# 8. Crear un usuario sin privilegios de superusuario (buena práctica de seguridad en contenedores)
+RUN useradd --create-home --shell /bin/bash appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 
-## Lint using ruff (use `make format` to do formatting)
-.PHONY: lint
-lint:
-	ruff format --check
-	ruff check
+# 9. Documentar el puerto expuesto por FastAPI / Uvicorn
+EXPOSE 8000
 
-## Format source code with ruff
-.PHONY: format
-format:
-	ruff check --fix
-	ruff format
-
-
-
-
-
-## Set up Python interpreter environment
-.PHONY: create_environment
-create_environment:
-	@bash -c "if [ ! -z `which virtualenvwrapper.sh` ]; then source `which virtualenvwrapper.sh`; mkvirtualenv $(PROJECT_NAME) --python=$(PYTHON_INTERPRETER); else mkvirtualenv.bat $(PROJECT_NAME) --python=$(PYTHON_INTERPRETER); fi"
-	@echo ">>> New virtualenv created. Activate with:\nworkon $(PROJECT_NAME)"
-	
-
-
-
-#################################################################################
-# PROJECT RULES                                                                 #
-#################################################################################
-
-
-## Make dataset
-.PHONY: data
-data: requirements
-	$(PYTHON_INTERPRETER) mibici/dataset.py
-
-
-#################################################################################
-# Self Documenting Commands                                                     #
-#################################################################################
-
-.DEFAULT_GOAL := help
-
-define PRINT_HELP_PYSCRIPT
-import re, sys; \
-lines = '\n'.join([line for line in sys.stdin]); \
-matches = re.findall(r'\n## (.*)\n[\s\S]+?\n([a-zA-Z_-]+):', lines); \
-print('Available rules:\n'); \
-print('\n'.join(['{:25}{}'.format(*reversed(match)) for match in matches]))
-endef
-export PRINT_HELP_PYSCRIPT
-
-help:
-	@$(PYTHON_INTERPRETER) -c "${PRINT_HELP_PYSCRIPT}" < $(MAKEFILE_LIST)
-
-#################################################################################
-# COMANDOS DE MLFLOW PROJECT Y SERVIDOR DE TRACKING (EQUIPO 35)                 #
-#################################################################################
-
-## Levantar servidor local de MLflow respaldado por SQLite en el puerto 5000
-.PHONY: mlflow-server
-mlflow-server:
-	$(PYTHON_INTERPRETER) -m mlflow server --backend-store-uri sqlite:///mlflow.db --port 5000
-
-## Ejecutar ingesta reproducible mediante MLflow Project
-.PHONY: mlflow-ingest
-mlflow-ingest:
-	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 MLFLOW_EXPERIMENT_NAME=mibici-equipo35 $(PYTHON_INTERPRETER) -m mlflow run . -e ingest --env-manager=local
-
-## Registrar modelos campeones en Model Registry y verificar carga con @champion
-.PHONY: mlflow-register
-mlflow-register:
-	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 MLFLOW_EXPERIMENT_NAME=mibici-equipo35 $(PYTHON_INTERPRETER) -m mlflow run . -e register --env-manager=local -P action=register_and_verify
-
-#################################################################################
-# PRUEBAS AUTOMATIZADAS (PYTEST + DEEPCHECKS) Y CHEQUEOS DE SEGURIDAD           #
-#################################################################################
-
-## Ejecutar todas las pruebas unitarias, reproducibilidad, DeepChecks y seguridad con un comando
-.PHONY: test
-test:
-	$(PYTHON_INTERPRETER) -m pytest
-
-## Ejecutar pruebas forzando la muestra real del archivo Parquet
-.PHONY: test-real
-test-real:
-	MIBICI_TEST_DATA_MODE=real $(PYTHON_INTERPRETER) -m pytest
-
-## Ejecutar pruebas forzando el dataset sintético de respaldo (sin requerir Parquet local)
-.PHONY: test-synthetic
-test-synthetic:
-	MIBICI_TEST_DATA_MODE=synthetic $(PYTHON_INTERPRETER) -m pytest
-
-## Ejecutar chequeos de seguridad de código (bandit) y de dependencias (pip-audit)
-.PHONY: security
-security:
-	$(PYTHON_INTERPRETER) -m bandit -r mibici/
-	$(PYTHON_INTERPRETER) -m pip_audit --skip-editable
-
-#################################################################################
-# SERVICIO API REST (FASTAPI) Y CONTENEDOR PODMAN (ENTREGA 4 - EQUIPO 35)       #
-#################################################################################
-
-## Exportar los modelos campeones desde el Model Registry hacia models/registry_bundle/
-.PHONY: export-models
-export-models:
-	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 $(PYTHON_INTERPRETER) -m mibici.api.model_loader
-
-## Levantar localmente el servidor API REST con FastAPI en el puerto 8000
-.PHONY: api-local
-api-local:
-	$(PYTHON_INTERPRETER) -m uvicorn mibici.api.main:app --host 127.0.0.1 --port 8000
-
-## Construir la imagen OCI del servicio API REST con Podman
-.PHONY: podman-build
-podman-build:
-	podman build -t mibici-api-equipo35:1.0 -f Containerfile .
-
-## Ejecutar el contenedor de la API REST localmente con Podman en el puerto 8000
-.PHONY: podman-run
-podman-run:
-	podman run --rm -d --name mibici-api -p 8000:8000 -e MLFLOW_TRACKING_URI=http://host.containers.internal:5000 mibici-api-equipo35:1.0
+# 10. Comando de arranque del servidor de inferencia REST
+CMD ["uvicorn", "mibici.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

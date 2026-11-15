@@ -1,0 +1,88 @@
+{
+    "evaluation_period": "Octubre 2026 (2026-10-01 a 2026-10-31)",
+    "evaluation_data_version": "3542d1d567e1",
+    "hourly_observations_evaluated": 208912,
+    "active_stations_evaluated_p3": 469,
+    "models": {
+        "p1": {
+            "model_name": "mibici-equipo35-p1-demanda",
+            "real_target_mean_oct2026": 2.8224,
+            "variant_A_v2": {
+                "mae": 1.3572,
+                "rmse": 2.1109,
+                "r2": 0.6511,
+                "peak_hour_mae": 1.5718,
+                "mean_bias_error": -0.3003,
+                "pred_mean": 2.5221
+            },
+            "variant_B_v3": {
+                "mae": 1.3427,
+                "rmse": 2.0666,
+                "r2": 0.6656,
+                "peak_hour_mae": 1.5537,
+                "mean_bias_error": -0.281,
+                "pred_mean": 2.5414
+            },
+            "paired_ttest_t_stat": 19.1902,
+            "paired_ttest_p_value": 5.2639558921800273e-82,
+            "statistically_significant_p_lt_0_05": true,
+            "selected_winner": "v3"
+        },
+        "p2": {
+            "model_name": "mibici-equipo35-p2-riesgo",
+            "real_positive_rate_oct2026": 0.0366,
+            "variant_A_v2": {
+                "f1": 0.1913,
+                "precision": 0.1086,
+                "recall": 0.8055,
+                "roc_auc": 0.8574,
+                "pr_auc": 0.2448,
+                "brier_score": 0.1563
+            },
+            "variant_B_v3": {
+                "f1": 0.1873,
+                "precision": 0.1056,
+                "recall": 0.828,
+                "roc_auc": 0.8622,
+                "pr_auc": 0.2512,
+                "brier_score": 0.1649
+            },
+            "paired_ttest_t_stat": -111.1332,
+            "paired_ttest_p_value": 0.0,
+            "statistically_significant_p_lt_0_05": true,
+            "selected_winner": "v2"
+        },
+        "p3": {
+            "model_name": "mibici-equipo35-p3-grupos",
+            "variant_A_v2": {
+                "silhouette_oct2026": 0.1533,
+                "davies_bouldin_oct2026": 1.8117,
+                "mean_centroid_distance": 2.3685,
+                "min_cluster_share": 0.1045,
+                "cluster_counts": {
+                    "0": 49,
+                    "1": 83,
+                    "2": 140,
+                    "3": 197
+                }
+            },
+            "variant_B_v3": {
+                "silhouette_oct2026": 0.1601,
+                "davies_bouldin_oct2026": 1.7937,
+                "mean_centroid_distance": 2.3142,
+                "min_cluster_share": 0.1919,
+                "cluster_counts": {
+                    "0": 90,
+                    "1": 191,
+                    "2": 97,
+                    "3": 91
+                }
+            },
+            "paired_ttest_t_stat": 2.4453,
+            "paired_ttest_p_value": 0.014841422965950438,
+            "statistically_significant_p_lt_0_05": true,
+            "selected_winner": "v3"
+        }
+    },
+    "figure_path": "reports/figures/ab_testing_comparacion_modelos.png"
+}
