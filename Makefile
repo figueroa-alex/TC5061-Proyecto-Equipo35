@@ -148,3 +148,17 @@ podman-build:
 .PHONY: podman-run
 podman-run:
 	podman run --rm -d --name mibici-api -p 8000:8000 -e MLFLOW_TRACKING_URI=http://host.containers.internal:5000 mibici-api-equipo35:1.0
+
+#################################################################################
+# MONITOREO DE DRIFT CON EVIDENTLY Y A/B TESTING (ENTREGABLE 8 - EQUIPO 35)     #
+#################################################################################
+
+## Generar reportes HTML/JSON y gráficas de Data Drift con Evidently (Octubre 2026)
+.PHONY: drift-report
+drift-report:
+	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 $(PYTHON_INTERPRETER) -m mibici.monitoring.drift_report
+
+## Entrenar versión alternativa v3 en Model Registry y ejecutar el A/B Testing (v2 vs v3)
+.PHONY: ab-test
+ab-test:
+	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 $(PYTHON_INTERPRETER) -m mibici.monitoring.ab_testing
