@@ -1,35 +1,48 @@
-# Archivos de Git
+# Archivos de Git y CI/CD
 .git
 .gitignore
+.github/
 
 # Entornos virtuales
 .venv/
 venv/
 env/
 
-# Cache de Python
+# Cachés de Python
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# Notebooks y pruebas
+# Datos pesados (solo se conserva data/processed/data_version.json)
+data/raw/
+data/interim/
+data/processed/*.parquet
+
+# Base de datos y artefactos locales de MLflow
+mlruns/
+mlartifacts/
+mlflow.db
+mlflow.db-journal
+
+# Notebooks, pruebas, pruebas de carga y reportes
 notebooks/
 tests/
+load_tests/
 reports/
 docs/
 references/
 
-# Archivos locales y secretos
+# Archivos locales, temporales y secretos
 .env
 .env.*
 !.env.example
 *.db
 *.sqlite
 *.sqlite3
-
-# Archivos temporales
+info*.txt
 .DS_Store
 .idea/
 .vscode/

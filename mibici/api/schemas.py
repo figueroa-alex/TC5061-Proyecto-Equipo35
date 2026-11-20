@@ -274,3 +274,39 @@ class RespuestaSalud(BaseModel):
     modelos_cargados: list[str] = Field(
         ..., description="Lista de modelos del Model Registry listos en memoria."
     )
+    redis_conectado: bool = Field(
+        default=False,
+        description="Indica si el broker Redis está disponible para predicciones asíncronas.",
+    )
+    cola_rq: str = Field(
+        default="mibici_predicciones",
+        description="Nombre de la cola de trabajos RQ configurada.",
+    )
+
+
+class RespuestaTareaEncolada(BaseModel):
+    """Esquema de salida cuando una petición se envía a la cola asíncrona de RQ."""
+
+    job_id: str = Field(..., description="Identificador único del trabajo encolado en Redis/RQ.")
+    queue_name: str = Field(..., description="Nombre de la cola de RQ donde se registró el trabajo.")
+    status: str = Field(..., description="Estado inicial del trabajo ('queued').")
+    question: str = Field(..., description="Pregunta de negocio solicitada ('p1').")
+    mensaje: str = Field(..., description="Instrucción para consultar el resultado del trabajo.")
+
+
+class RespuestaEstadoTarea(BaseModel):
+    """Esquema de salida al consultar el estado y resultado de un trabajo en RQ."""
+
+    job_id: str = Field(..., description="Identificador único del trabajo en Redis/RQ.")
+    status: str = Field(
+        ...,
+        description="Estado actual en RQ ('queued', 'started', 'finished' o 'failed').",
+    )
+    resultado: dict | None = Field(
+        default=None,
+        description="Diccionario con la predicción calculada cuando status es 'finished'.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Detalle del error si el trabajo falló durante su ejecución.",
+    )

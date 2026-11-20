@@ -2,12 +2,14 @@
 Servicio API REST construido con FastAPI para servir los modelos del proyecto MiBici (Equipo 35).
 
 Expone:
-  - GET  /                    -> Información general del servicio REST.
-  - GET  /health              -> Estado de salud del contenedor y modelos cargados.
-  - GET  /metadata            -> Metadatos de trazabilidad del Model Registry y variables requeridas.
-  - POST /predict/p1-demanda  -> Predicción de demanda horaria (Regresión - P1).
-  - POST /predict/p2-riesgo   -> Predicción de riesgo de desbalance horario (Clasificación - P2).
-  - POST /predict/p3-grupos   -> Asignación de grupo operativo de estación (Clustering - P3).
+  - GET  /                         -> Información general del servicio REST.
+  - GET  /health                   -> Estado de salud del contenedor, modelos y conexión a Redis.
+  - GET  /metadata                 -> Metadatos de trazabilidad del Model Registry y variables requeridas.
+  - POST /predict/p1-demanda       -> Predicción síncrona de demanda horaria (Regresión - P1).
+  - POST /predict/p2-riesgo        -> Predicción síncrona de riesgo de desbalance horario (Clasificación - P2).
+  - POST /predict/p3-grupos        -> Asignación síncrona de grupo operativo de estación (Clustering - P3).
+  - POST /predict/async/p1-demanda -> Encola una predicción de demanda (P1) en Redis/RQ para el worker.
+  - GET  /jobs/{job_id}            -> Consulta el estado y resultado de un trabajo asíncrono en RQ.
 
 Cómo ejecutar localmente:
     uvicorn mibici.api.main:app --host 0.0.0.0 --port 8000
@@ -15,32 +17,20 @@ Cómo ejecutar localmente:
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import pandas as pd
+from redis import Redis
+from rq import Queue
+from rq.exceptions import NoSuchJobError
+from rq.job import Job
 
 from mibici import config
-from mibici.api import model_loader, schemas
+from mibici.api import model_loader, schemas, tasks
 
 # ==============================================================================
 # 1. VARIABLES Y ORDEN EXACTO DE COLUMNAS QUE ESPERAN LOS MODELOS DE MLFLOW
 # ==============================================================================
-COLUMNAS_P1_P2 = [
-    "hora",
-    "dia_semana",
-    "mes",
-    "es_fin_de_semana",
-    "es_hora_pico",
-    "dpcapacity",
-    "latitude",
-    "longitude",
-    "lag_1_iniciados",
-    "lag_2_iniciados",
-    "lag_24_iniciados",
-    "media_movil_3_iniciados",
-    "lag_1_terminados",
-    "lag_1_flujo_neto",
-    "lag_1_ratio_capacidad",
-]
+COLUMNAS_P1_P2 = tasks.COLUMNAS_P1_P2
 
 COLUMNAS_P3 = [
     "promedio_salidas_diarias",
@@ -69,6 +59,24 @@ def asegurar_modelos_cargados() -> dict[str, dict]:
     return MODELOS_EN_MEMORIA
 
 
+def obtener_conexion_redis() -> Redis:
+    """Crea un cliente de Redis con tiempos de espera cortos para no bloquear la API."""
+    return Redis.from_url(
+        config.REDIS_URL,
+        socket_connect_timeout=1.5,
+        socket_timeout=2.0,
+    )
+
+
+def verificar_conexion_redis() -> bool:
+    """Devuelve True si el broker Redis responde a PING; False si no está disponible."""
+    try:
+        cliente_redis = obtener_conexion_redis()
+        return bool(cliente_redis.ping())
+    except Exception:
+        return False
+
+
 # ==============================================================================
 # 2. CICLO DE VIDA DE LA APLICACIÓN (CARGA AL INICIAR Y LIMPIEZA AL APAGAR)
 # ==============================================================================
@@ -86,11 +94,12 @@ async def ciclo_de_vida_api(app: FastAPI):
 app = FastAPI(
     title="API REST Proyecto Integrador MiBici - Equipo 35",
     description=(
-        "Servicio de inferencia para los modelos de Regresión (P1), Clasificación (P2) "
-        "y Clustering (P3) del sistema de bicicletas públicas MiBici en Guadalajara, "
-        "recuperados desde el Model Registry de MLflow (@champion)."
+        "Servicio de inferencia síncrona y asíncrona (Redis + RQ) para los modelos "
+        "de Regresión (P1), Clasificación (P2) y Clustering (P3) del sistema de "
+        "bicicletas públicas MiBici en Guadalajara, recuperados desde el Model "
+        "Registry de MLflow (@champion)."
     ),
-    version="1.0.0",
+    version="1.1.0",
     lifespan=ciclo_de_vida_api,
 )
 
@@ -103,19 +112,21 @@ def raiz_servicio() -> dict:
     """Endpoint de bienvenida que describe las rutas disponibles en la API."""
     return {
         "servicio": "API REST Proyecto MiBici - Equipo 35",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "documentacion_interactiva": "/docs",
         "endpoints_prediccion": {
             "p1_demanda_horaria": "/predict/p1-demanda",
             "p2_riesgo_desbalance": "/predict/p2-riesgo",
             "p3_clustering_estaciones": "/predict/p3-grupos",
+            "p1_demanda_asincrona_rq": "/predict/async/p1-demanda",
+            "consulta_trabajo_rq": "/jobs/{job_id}",
         },
     }
 
 
 @app.get("/health", response_model=schemas.RespuestaSalud, tags=["Operación"])
 def verificar_salud() -> schemas.RespuestaSalud:
-    """Comprueba que el contenedor está activo y que los modelos se cargaron sin errores."""
+    """Comprueba que el contenedor está activo, los modelos cargaron y revisa Redis."""
     catalogo = asegurar_modelos_cargados()
     nombres_cargados = [
         info["metadata"]["model_name"] for info in catalogo.values()
@@ -125,6 +136,8 @@ def verificar_salud() -> schemas.RespuestaSalud:
         team=config.TEAM_TAG,
         tracking_uri_configurada=config.MLFLOW_TRACKING_URI,
         modelos_cargados=nombres_cargados,
+        redis_conectado=verificar_conexion_redis(),
+        cola_rq=config.RQ_QUEUE_NAME,
     )
 
 
@@ -135,6 +148,7 @@ def consultar_metadatos() -> dict:
     return {
         "team": config.TEAM_TAG,
         "load_mode": config.MODEL_LOAD_MODE,
+        "redis_queue": config.RQ_QUEUE_NAME,
         "models": {
             "p1": {
                 **catalogo["p1"]["metadata"],
@@ -153,7 +167,7 @@ def consultar_metadatos() -> dict:
 
 
 # ==============================================================================
-# 5. ENDPOINTS DE PREDICCIÓN (P1 REGRESIÓN, P2 CLASIFICACIÓN Y P3 CLUSTERING)
+# 5. ENDPOINTS DE PREDICCIÓN SÍNCRONA (P1 REGRESIÓN, P2 CLASIFICACIÓN, P3 CLUSTERING)
 # ==============================================================================
 @app.post(
     "/predict/p1-demanda",
@@ -256,4 +270,99 @@ def predecir_grupo_p3(
         loaded_from=meta_p3["loaded_from"],
         cluster_asignado=cluster_id,
         descripcion_cluster=f"Grupo operativo {cluster_id} de estaciones MiBici en el AMG.",
+    )
+
+
+# ==============================================================================
+# 6. ENDPOINTS DE PREDICCIÓN ASÍNCRONA CON REDIS + RQ (ARQUITECTURA MICROSERVICIOS)
+# ==============================================================================
+def _normalizar_estado_rq(estado_bruto) -> str:
+    """Extrae el texto limpio de un JobStatus de RQ ('queued', 'finished', etc.)."""
+    if estado_bruto is None:
+        return "queued"
+    if hasattr(estado_bruto, "value"):
+        return str(estado_bruto.value)
+    return str(estado_bruto).split(".")[-1].lower()
+
+
+@app.post(
+    "/predict/async/p1-demanda",
+    response_model=schemas.RespuestaTareaEncolada,
+    status_code=202,
+    tags=["Predicción Asíncrona (Redis + RQ)"],
+)
+def encolar_prediccion_p1_asincrona(
+    datos: schemas.EntradaHorariaEstacion,
+) -> schemas.RespuestaTareaEncolada:
+    """
+    Valida los datos de entrada y encola la predicción de demanda horaria (P1)
+    en Redis/RQ para que el microservicio 'rq-worker' la procese en segundo plano.
+    """
+    try:
+        cliente_redis = obtener_conexion_redis()
+        cola = Queue(name=config.RQ_QUEUE_NAME, connection=cliente_redis)
+        trabajo = cola.enqueue(
+            tasks.ejecutar_prediccion_p1_asincrona,
+            datos.model_dump(),
+            result_ttl=600,
+        )
+    except Exception as error_redis:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "El broker Redis no está disponible para encolar predicciones "
+                f"asíncronas ({config.REDIS_URL}): {error_redis}"
+            ),
+        ) from error_redis
+
+    estado_inicial = _normalizar_estado_rq(trabajo.get_status(refresh=False))
+    return schemas.RespuestaTareaEncolada(
+        job_id=trabajo.id,
+        queue_name=config.RQ_QUEUE_NAME,
+        status=estado_inicial,
+        question="p1",
+        mensaje=f"Trabajo encolado correctamente. Consulta el resultado en /jobs/{trabajo.id}",
+    )
+
+
+@app.get(
+    "/jobs/{job_id}",
+    response_model=schemas.RespuestaEstadoTarea,
+    tags=["Predicción Asíncrona (Redis + RQ)"],
+)
+def consultar_estado_trabajo(job_id: str) -> schemas.RespuestaEstadoTarea:
+    """
+    Consulta en Redis/RQ el estado de un trabajo asíncrono y devuelve el resultado
+    de la predicción cuando el worker haya terminado de procesarlo.
+    """
+    try:
+        cliente_redis = obtener_conexion_redis()
+        trabajo = Job.fetch(job_id, connection=cliente_redis)
+    except NoSuchJobError as error_no_encontrado:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontró el trabajo con job_id='{job_id}' en Redis/RQ.",
+        ) from error_no_encontrado
+    except Exception as error_redis:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No fue posible consultar el trabajo porque Redis no está disponible "
+                f"({config.REDIS_URL}): {error_redis}"
+            ),
+        ) from error_redis
+
+    estado_actual = _normalizar_estado_rq(trabajo.get_status(refresh=True))
+    resultado = trabajo.return_value() if trabajo.is_finished else None
+    detalle_error = (
+        trabajo.exc_info.splitlines()[-1]
+        if trabajo.is_failed and trabajo.exc_info
+        else None
+    )
+
+    return schemas.RespuestaEstadoTarea(
+        job_id=trabajo.id,
+        status=estado_actual,
+        resultado=resultado,
+        error=detalle_error,
     )

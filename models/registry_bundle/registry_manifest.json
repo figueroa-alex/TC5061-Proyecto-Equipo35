@@ -5,13 +5,13 @@
         "p1": {
             "question": "p1",
             "model_name": "mibici-equipo35-p1-demanda",
-            "model_version": "2",
+            "model_version": "3",
             "model_alias": "champion",
             "registry_uri_alias": "models:/mibici-equipo35-p1-demanda@champion",
-            "registry_uri_version": "models:/mibici-equipo35-p1-demanda/2",
-            "run_id": "5c9fd936fad642a180c3276e94969f4c",
-            "git_commit": "b846c0c",
-            "data_version": "128979137b46",
+            "registry_uri_version": "models:/mibici-equipo35-p1-demanda/3",
+            "run_id": "a329e5824c20435fac060f907662f41a",
+            "git_commit": "24299b0",
+            "data_version": "128979137b46+3542d1d567e1",
             "bundle_relative_path": "models/registry_bundle/p1_demanda"
         },
         "p2": {
@@ -21,21 +21,21 @@
             "model_alias": "champion",
             "registry_uri_alias": "models:/mibici-equipo35-p2-riesgo@champion",
             "registry_uri_version": "models:/mibici-equipo35-p2-riesgo/2",
-            "run_id": "94f1ab880d894c10b0310c081aac4784",
-            "git_commit": "b846c0c",
+            "run_id": "941be04346ef49d8b521b868fee5dc32",
+            "git_commit": "24299b0",
             "data_version": "128979137b46",
             "bundle_relative_path": "models/registry_bundle/p2_riesgo"
         },
         "p3": {
             "question": "p3",
             "model_name": "mibici-equipo35-p3-grupos",
-            "model_version": "2",
+            "model_version": "3",
             "model_alias": "champion",
             "registry_uri_alias": "models:/mibici-equipo35-p3-grupos@champion",
-            "registry_uri_version": "models:/mibici-equipo35-p3-grupos/2",
-            "run_id": "f7d09c6401b342b3a2df4f024a425679",
-            "git_commit": "b846c0c",
-            "data_version": "128979137b46",
+            "registry_uri_version": "models:/mibici-equipo35-p3-grupos/3",
+            "run_id": "d760f719c670435bb95a74f268a0b7a9",
+            "git_commit": "24299b0",
+            "data_version": "128979137b46+3542d1d567e1",
             "bundle_relative_path": "models/registry_bundle/p3_grupos"
         }
     }

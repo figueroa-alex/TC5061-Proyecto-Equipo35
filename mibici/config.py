@@ -268,3 +268,15 @@ DRIFT_STAT_THRESHOLD = 0.05
 #   - Variante B (Tratamiento): v3 (reentrenada con Oct 2022 - Sep 2026, 48 meses + ajuste)
 AB_VARIANT_A_VERSION = "2"
 AB_VARIANT_B_VERSION = "3"
+
+# ==============================================================================
+# 9. ORQUESTACIÓN DE MICROSERVICIOS, COLA ASÍNCRONA (REDIS + RQ) Y FINOPS
+# ==============================================================================
+# Conexión al broker Redis y nombre de la cola de trabajos en segundo plano (RQ).
+# Dentro de Docker/Podman Compose se sobreescribe con: redis://redis:6379/0
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+RQ_QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "mibici_predicciones")
+
+# Carpeta para guardar resultados de pruebas de carga (Locust), monitoreo de
+# recursos (podman/docker stats) y el resumen JSON del análisis FinOps.
+OPERATIONS_REPORTS_DIR = REPORTS_DIR / "operations"
