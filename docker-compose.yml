@@ -1,0 +1,180 @@
+# ==============================================================================
+# ORQUESTACIÓN DE MICROSERVICIOS - PROYECTO MIBICI (EQUIPO 35)
+# Compatible con:
+#   - podman-compose up -d --build   (entorno local con Podman)
+#   - docker compose up -d --build   (Docker / GitHub Actions CI/CD)
+#
+# Servicios orquestados:
+#   1. mlflow-server -> Servidor de Tracking y Model Registry (puerto 5001 -> 5000)
+#   2. redis         -> Broker en memoria para colas asíncronas (puerto 6379)
+#   3. mibici-api    -> API REST de inferencia con FastAPI (puerto 8000)
+#   4. rq-worker     -> Worker de RQ para predicciones asíncronas en segundo plano
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. SERVIDOR DE MLFLOW TRACKING Y MODEL REGISTRY
+  # ----------------------------------------------------------------------------
+  mlflow-server:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: mibici-api-equipo35:1.1
+    container_name: mibici-mlflow
+    environment:
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/mlartifacts
+      --host 0.0.0.0
+      --port 5000
+      --workers 1
+      --allowed-hosts mlflow-server,mlflow-server:5000,localhost,localhost:5000,localhost:5001,127.0.0.1,127.0.0.1:5000,127.0.0.1:5001
+    ports:
+      - "${MLFLOW_PORT:-5001}:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    networks:
+      - mibici-net
+    cpus: 1.0
+    mem_limit: 1024m
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+
+  # ----------------------------------------------------------------------------
+  # 2. BROKER REDIS (PERSISTENCIA AOF PARA COLA DE TRABAJOS RQ)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: docker.io/library/redis:7.4-alpine
+    container_name: mibici-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mibici-net
+    cpus: 0.5
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # 3. API REST DE INFERENCIA (FASTAPI + UVICORN)
+  # ----------------------------------------------------------------------------
+  mibici-api:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: mibici-api-equipo35:1.1
+    container_name: mibici-api
+    environment:
+      MLFLOW_TRACKING_URI: "http://mlflow-server:5000"
+      MLFLOW_EXPERIMENT_NAME: "${MLFLOW_EXPERIMENT_NAME:-mibici-equipo35}"
+      MLFLOW_HTTP_REQUEST_TIMEOUT: "5"
+      MLFLOW_HTTP_REQUEST_MAX_RETRIES: "1"
+      MIBICI_MODEL_ALIAS: "${MIBICI_MODEL_ALIAS:-champion}"
+      MIBICI_MODEL_VERSION: "${MIBICI_MODEL_VERSION:-3}"
+      MIBICI_MODEL_LOAD_MODE: "${MIBICI_MODEL_LOAD_MODE:-hybrid}"
+      MIBICI_API_HOST: "0.0.0.0"
+      MIBICI_API_PORT: "8000"
+      REDIS_URL: "redis://redis:6379/0"
+      RQ_QUEUE_NAME: "${RQ_QUEUE_NAME:-mibici_predicciones}"
+    ports:
+      - "${MIBICI_API_PORT:-8000}:8000"
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mibici-net
+    cpus: 2.0
+    mem_limit: 1536m
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ----------------------------------------------------------------------------
+  # 4. WORKER ASÍNCRONO DE RQ (PROCESA PREDICCIONES EN SEGUNDO PLANO)
+  # ----------------------------------------------------------------------------
+  rq-worker:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: mibici-api-equipo35:1.1
+    container_name: mibici-rq-worker
+    command: ["rq", "worker", "mibici_predicciones", "--url", "redis://redis:6379/0"]
+    environment:
+      MLFLOW_TRACKING_URI: "http://mlflow-server:5000"
+      MLFLOW_EXPERIMENT_NAME: "${MLFLOW_EXPERIMENT_NAME:-mibici-equipo35}"
+      MLFLOW_HTTP_REQUEST_TIMEOUT: "5"
+      MLFLOW_HTTP_REQUEST_MAX_RETRIES: "1"
+      MIBICI_MODEL_ALIAS: "${MIBICI_MODEL_ALIAS:-champion}"
+      MIBICI_MODEL_VERSION: "${MIBICI_MODEL_VERSION:-3}"
+      MIBICI_MODEL_LOAD_MODE: "${MIBICI_MODEL_LOAD_MODE:-hybrid}"
+      REDIS_URL: "redis://redis:6379/0"
+      RQ_QUEUE_NAME: "${RQ_QUEUE_NAME:-mibici_predicciones}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      mibici-api:
+        condition: service_healthy
+    networks:
+      - mibici-net
+    cpus: 1.0
+    mem_limit: 1024m
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from redis import Redis; assert Redis.from_url('redis://redis:6379/0').ping()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+# ==============================================================================
+# RED PRIVADA DEDICADA Y VOLÚMENES PERSISTENTES
+# ==============================================================================
+networks:
+  mibici-net:
+    driver: bridge
+    name: mibici-net
+
+volumes:
+  mlflow_data:
+    name: mibici_mlflow_data
+  redis_data:
+    name: mibici_redis_data
