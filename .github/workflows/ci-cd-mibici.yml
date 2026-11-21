@@ -1,0 +1,276 @@
+# ==============================================================================
+# PIPELINE DE CI/CD - PROYECTO INTEGRADOR MIBICI (EQUIPO 35)
+# ==============================================================================
+# Automatiza en cada push y pull request:
+#   1. pruebas-y-calidad             -> Matriz de pruebas (PyTest, DeepChecks,
+#                                       Evidently, seguridad y Bandit) en
+#                                       python:3.14.3-slim con caché pip.
+#   2. build-y-despliegue-compose    -> Construcción OCI desde Containerfile
+#                                       (caché GHA), despliegue real de los 4
+#                                       microservicios con Docker Compose y
+#                                       smoke tests E2E (síncronos + Redis/RQ).
+#   3. publicar-imagen-ghcr          -> Publicación automática en GitHub
+#                                       Container Registry (ghcr.io) en main.
+#   4. notificacion-resumen-pipeline -> Reporte automático en GitHub Summary.
+# ==============================================================================
+
+name: CI/CD Microservicios MiBici (Equipo 35)
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "docs/**"
+      - "test/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Cancela ejecuciones redundantes de una misma rama (buena práctica FinOps en CI)
+concurrency:
+  group: ci-cd-mibici-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14.3"
+  IMAGE_LOCAL_TAG: "mibici-api-equipo35:1.1"
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # JOB 1: MATRIZ DE PRUEBAS AUTOMATIZADAS Y CHEQUEOS DE SEGURIDAD (CI)
+  # ----------------------------------------------------------------------------
+  pruebas-y-calidad:
+    name: "CI | Suite: ${{ matrix.suite }}"
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.14.3-slim
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - unit-api-microservices
+          - data-monitoring-security
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v6
+
+      - name: Restaurar caché de dependencias de pip
+        uses: actions/cache@v4
+        with:
+          path: /root/.cache/pip
+          key: linux-py3143-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            linux-py3143-pip-
+
+      - name: Instalar librerías del sistema y dependencias de Python
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libgomp1 git
+          rm -rf /var/lib/apt/lists/*
+          python -m pip install --upgrade pip
+          grep -Ev "^(-e |appnope==)" requirements.txt > /tmp/requirements_ci.txt
+          pip install -r /tmp/requirements_ci.txt
+          pip install --no-deps -e .
+
+      - name: Ejecutar suite unitaria, reproducibilidad, API FastAPI y microservicios
+        if: matrix.suite == 'unit-api-microservices'
+        env:
+          MIBICI_TEST_DATA_MODE: "synthetic"
+          MIBICI_MODEL_LOAD_MODE: "bundle"
+        run: |
+          python -m pytest \
+            tests/test_unit_mibici.py \
+            tests/test_reproducibility.py \
+            tests/test_api_fastapi.py \
+            tests/test_microservices_async.py
+
+      - name: Ejecutar suite de integridad de datos (DeepChecks), monitoreo y seguridad
+        if: matrix.suite == 'data-monitoring-security'
+        env:
+          MIBICI_TEST_DATA_MODE: "synthetic"
+          MIBICI_MODEL_LOAD_MODE: "bundle"
+        run: |
+          python -m pytest \
+            tests/test_data_deepchecks.py \
+            tests/test_monitoring_drift_ab.py \
+            tests/test_security_repo.py
+          python -m bandit -r mibici/
+
+  # ----------------------------------------------------------------------------
+  # JOB 2: CONSTRUCCIÓN DE IMAGEN OCI Y DESPLIEGUE VALIDADO CON DOCKER COMPOSE
+  # ----------------------------------------------------------------------------
+  build-y-despliegue-compose:
+    name: "CD | Build OCI + Despliegue Compose + Smoke Tests E2E"
+    runs-on: ubuntu-latest
+    needs: pruebas-y-calidad
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Construir imagen OCI desde Containerfile (con caché de capas GHA)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_LOCAL_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Validar sintaxis de docker-compose.yml
+        run: docker compose config --quiet
+
+      - name: Desplegar los 4 microservicios con Docker Compose
+        run: |
+          docker compose up -d --no-build
+          echo "Esperando a que los 4 servicios pasen a estado healthy..."
+          for i in $(seq 1 30); do
+            SANO=$(docker compose ps --format json | python3 -c "
+          import sys, json
+          raw = sys.stdin.read().strip()
+          if not raw:
+              items = []
+          elif raw.startswith('['):
+              items = json.loads(raw)
+          else:
+              items = [json.loads(l) for l in raw.splitlines() if l.strip()]
+          ok = sum(1 for c in items if c.get('Health') == 'healthy')
+          print(f'{ok}/{len(items)}')
+          ")
+            echo "Intento $i/30 -> Contenedores healthy: $SANO"
+            if [ "$SANO" = "4/4" ]; then
+              break
+            fi
+            sleep 5
+          done
+          docker compose ps
+          docker stats --no-stream
+
+      - name: Ejecutar pruebas de humo E2E (MLflow, /health, P1, P2, P3 y cola Redis+RQ)
+        run: |
+          set -euo pipefail
+
+          echo "=== 1. Verificar MLflow Server (/health en puerto 5001) ==="
+          curl -fsS http://127.0.0.1:5001/health
+          echo ""
+
+          echo "=== 2. Verificar API REST (/health) y conexión a Redis ==="
+          HEALTH=$(curl -fsS http://127.0.0.1:8000/health)
+          echo "$HEALTH"
+          echo "$HEALTH" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['status']=='ok' and d['redis_conectado'] is True and len(d['modelos_cargados'])==3"
+
+          echo "=== 3. Verificar inferencia síncrona P1, P2 y P3 ==="
+          PAYLOAD_P1_P2='{"hora":8,"dia_semana":1,"mes":10,"es_fin_de_semana":0,"es_hora_pico":1,"dpcapacity":19.0,"latitude":20.66769,"longitude":-103.368252,"lag_1_iniciados":6.0,"lag_2_iniciados":3.0,"lag_24_iniciados":5.0,"media_movil_3_iniciados":4.3333,"lag_1_terminados":2.0,"lag_1_flujo_neto":4.0,"lag_1_ratio_capacidad":0.2105}'
+          PAYLOAD_P3='{"promedio_salidas_diarias":42.5,"duracion_mediana_min":11.2,"prop_fin_de_semana":0.21,"prop_pico_manana":0.24,"prop_pico_tarde":0.28,"ratio_salidas_llegadas":1.04,"dpcapacity":19.0,"latitude":20.66769,"longitude":-103.368252}'
+
+          curl -fsS -X POST http://127.0.0.1:8000/predict/p1-demanda -H "Content-Type: application/json" -d "$PAYLOAD_P1_P2" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['question']=='p1' and d['viajes_iniciados_predichos']>=0; print('P1 OK:', d)"
+          curl -fsS -X POST http://127.0.0.1:8000/predict/p2-riesgo  -H "Content-Type: application/json" -d "$PAYLOAD_P1_P2" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['question']=='p2' and d['en_riesgo'] in (0,1); print('P2 OK:', d)"
+          curl -fsS -X POST http://127.0.0.1:8000/predict/p3-grupos  -H "Content-Type: application/json" -d "$PAYLOAD_P3"    | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['question']=='p3' and d['cluster_asignado']>=0; print('P3 OK:', d)"
+
+          echo "=== 4. Verificar flujo asíncrono completo (API -> Redis -> RQ Worker -> /jobs) ==="
+          RESP_ASYNC=$(curl -fsS -X POST http://127.0.0.1:8000/predict/async/p1-demanda -H "Content-Type: application/json" -d "$PAYLOAD_P1_P2")
+          echo "Encolado: $RESP_ASYNC"
+          JOB_ID=$(echo "$RESP_ASYNC" | python3 -c "import sys, json; print(json.load(sys.stdin)['job_id'])")
+
+          ESTADO="queued"
+          for intento in $(seq 1 20); do
+            RESP_JOB=$(curl -fsS "http://127.0.0.1:8000/jobs/${JOB_ID}")
+            ESTADO=$(echo "$RESP_JOB" | python3 -c "import sys, json; print(json.load(sys.stdin)['status'])")
+            echo "Consulta $intento -> status=$ESTADO"
+            if [ "$ESTADO" = "finished" ]; then
+              echo "$RESP_JOB" | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['resultado']['viajes_iniciados_predichos']>=0; print('Async RQ OK:', d)"
+              break
+            fi
+            sleep 1
+          done
+          test "$ESTADO" = "finished"
+
+      - name: Mostrar logs de diagnóstico si algún paso falló
+        if: failure()
+        run: docker compose logs --tail=80
+
+      - name: Detener y limpiar contenedores de prueba
+        if: always()
+        run: docker compose down -v
+
+  # ----------------------------------------------------------------------------
+  # JOB 3: PUBLICACIÓN AUTOMÁTICA DE IMAGEN EN GITHUB CONTAINER REGISTRY (GHCR)
+  # ----------------------------------------------------------------------------
+  publicar-imagen-ghcr:
+    name: "CD | Publicar imagen en ghcr.io"
+    runs-on: ubuntu-latest
+    needs: build-y-despliegue-compose
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Preparar nombre de imagen en minúsculas para GHCR
+        run: |
+          IMAGE_LOWER=$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "GHCR_IMAGE=${IMAGE_LOWER}" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+
+      - name: Autenticar en GitHub Container Registry (ghcr.io)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar imagen en ghcr.io (latest y sha)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          push: true
+          tags: |
+            ${{ env.GHCR_IMAGE }}:latest
+            ${{ env.GHCR_IMAGE }}:${{ env.SHORT_SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ----------------------------------------------------------------------------
+  # JOB 4: NOTIFICACIÓN / RESUMEN AUTOMÁTICO EN GITHUB ACTIONS SUMMARY
+  # ----------------------------------------------------------------------------
+  notificacion-resumen-pipeline:
+    name: "Notificación | Resumen del Pipeline CI/CD"
+    runs-on: ubuntu-latest
+    needs: [pruebas-y-calidad, build-y-despliegue-compose, publicar-imagen-ghcr]
+    if: always()
+    steps:
+      - name: Publicar resumen de estado en GitHub Step Summary
+        run: |
+          {
+            echo "## Resumen del Pipeline CI/CD — Proyecto MiBici (Equipo 35)"
+            echo ""
+            echo "| Etapa | Resultado |"
+            echo "| :--- | :--- |"
+            echo "| 1. Pruebas automatizadas y seguridad (Matriz CI) | \`${{ needs.pruebas-y-calidad.result }}\` |"
+            echo "| 2. Build OCI + Despliegue Docker Compose + Smoke Tests | \`${{ needs.build-y-despliegue-compose.result }}\` |"
+            echo "| 3. Publicación en GitHub Container Registry (ghcr.io) | \`${{ needs.publicar-imagen-ghcr.result }}\` |"
+            echo ""
+            echo "- **Evento:** \`${{ github.event_name }}\`"
+            echo "- **Rama / Ref:** \`${{ github.ref }}\`"
+            echo "- **Commit:** \`${{ github.sha }}\`"
+            echo "- **Autor:** \`${{ github.actor }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fallar el resumen si fallaron las pruebas o el despliegue
+        if: needs.pruebas-y-calidad.result != 'success' || needs.build-y-despliegue-compose.result != 'success'
+        run: exit 1
