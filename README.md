@@ -44,9 +44,14 @@ Se mantienen la misma partición y las mismas métricas de la entrega anterior p
 El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `include_code_scaffold = Yes` y se extendió con un MLflow Project:
 
 ```text
+├── .github/
+│   └── workflows/
+│       └── ci-cd-mibici.yml <- Pipeline CI/CD en GitHub Actions (matriz pruebas, Compose E2E y publicación ghcr.io)
 ├── .gitignore               <- Excluye datos crudos/procesados, modelos, mlruns/, mlartifacts/ y mlflow.db
+├── Containerfile            <- Imagen OCI reutilizada por mibici-api, rq-worker y mlflow-server
+├── docker-compose.yml       <- Orquestación en un comando de 4 microservicios (MLflow, Redis, API y RQ Worker)
 ├── LICENSE
-├── Makefile                 <- Atajos de línea de comandos para ingesta, servidor y registro
+├── Makefile                 <- Atajos de línea de comandos para ingesta, servidor, registro, Compose, Locust y FinOps
 ├── MLproject                <- Definición del MLflow Project (entry points: ingest, train, register, monitor_drift, ab_test)
 ├── python_env.yaml          <- Entorno del MLflow Project con versiones fijas de Python y dependencias
 ├── pyproject.toml           <- Metadatos del paquete instalable mibici
@@ -59,13 +64,17 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 │   │   ├── data_version.json         <- Manifiesto SHA-256 del bloque histórico base (128979137b46)
 │   │   └── data_version_2026_10.json <- Manifiesto SHA-256 del lote de producción Oct 2026 (3542d1d567e1)
 │   └── raw/                 <- Archivos CSV mensuales y snapshots versionados de nomenclatura (2026_09 y 2026_10)
+├── load_tests/
+│   ├── locustfile.py        <- Escenarios de pruebas de carga con Locust (síncrono P1/P2/P3 + asíncrono RQ)
+│   ├── monitorear_recursos.py <- Monitor automático de CPU/RAM con podman/docker stats
+│   └── analizar_carga_finops.py <- Generación de gráficas de desempeño/recursos y cálculo FinOps
 ├── mibici/
 │   ├── __init__.py
 │   ├── config.py            <- Configuración centralizada (rutas, fechas, semilla, hiperparámetros y Registry)
 │   ├── dataset.py           <- Punto de entrada 'ingest': descarga, limpieza, Parquet y data_version.json
 │   ├── features.py          <- Ingeniería de características sin fuga de datos (rezagos temporales .shift)
 │   ├── plots.py             <- Generación de gráficas de desempeño para P1, P2 y P3
-│   ├── api/                 <- Servicio API REST con FastAPI y carga híbrida desde Model Registry
+│   ├── api/                 <- Servicio API REST con FastAPI, carga híbrida del Registry y tareas asíncronas RQ (tasks.py)
 │   ├── modeling/
 │   │   ├── __init__.py
 │   │   ├── train.py         <- Punto de entrada 'train': baselines, nested runs, candidatos y artefactos
@@ -79,9 +88,10 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 │   ├── arquitectura_equipo35.md        <- Diagrama y justificación de arquitectura
 │   └── ml_canvas_equipo35.md           <- ML Canvas del proyecto
 ├── reports/
-│   ├── figures/             <- Gráficas de desempeño (P1, P2, P3), evidencias, Evidently Drift y A/B Testing
-│   └── monitoring/          <- Reportes interactivos HTML de Evidently y resúmenes JSON de Drift y A/B Testing
-└── tests/                   <- Suite automatizada de 39 pruebas (PyTest, Reproducibilidad, DeepChecks, Seguridad, API y Evidently)
+│   ├── figures/             <- Gráficas de desempeño (P1, P2, P3), evidencias, Evidently Drift, A/B Testing, Locust y FinOps
+│   ├── monitoring/          <- Reportes interactivos HTML de Evidently y resúmenes JSON de Drift y A/B Testing
+│   └── operations/          <- Reportes HTML/CSV de Locust, métricas de podman stats y resumen JSON FinOps
+└── tests/                   <- Suite automatizada de 45 pruebas (PyTest, Reproducibilidad, DeepChecks, Seguridad, API, Evidently y Microservicios)
 ```
 ---
 
@@ -238,6 +248,7 @@ El equipo adoptó **GitHub Flow** con las siguientes reglas:
    * Entrega 2: `feat/mlflow-project-infra`, `feat/experimentacion-artefactos`, `feat/model-registry`, `docs/readme-reporte-entrega2`.
    * Entrega 3: `feat/seguridad-y-configuracion`, `test/unitarias-y-reproducibilidad`, `test/validacion-datos-deepchecks`, `feat/recuperacion-modelo-registry`, `feat/api-fastapi-validacion-pydantic`, `feat/contenedor-podman-containerfile`.
    * Entrega 4 (Monitoreo y A/B Testing): `feat/ingesta-octubre2026-y-config-monitoreo`, `feat/monitoreo-drift-evidently`, `feat/ab-testing-model-registry-v3`, `docs/reporte-drift-abtest-y-pruebas`.
+   * Entrega 5 / Entregable 7 (Microservicios, CI/CD y FinOps): `feat/compose-microservicios-redis-rq`, `feat/pruebas-carga-locust-y-stats`, `feat/analisis-finops-y-graficas`, `feat/pipeline-cicd-pruebas-y-readme`.
 3. **Convención de mensajes de commit:** Basada en *Conventional Commits* 1.0.0 (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`) seguidos de una descripción concisa en español.
 4. **Fusión con *merge commit*:** Los PR se fusionan con *merge commit* (sin *squash*) para conservar los *commits* que quedan registrados en la etiqueta `git_commit` de cada corrida y versión del Model Registry.
 5. **Exclusión de artefactos pesados:** El archivo `.gitignore` bloquea cualquier archivo `.csv`, `.parquet`, modelos serializados, `mlruns/`, `mlartifacts/` y `mlflow.db` para mantener el repositorio ligero y auditable.
@@ -257,7 +268,7 @@ El equipo adoptó **GitHub Flow** con las siguientes reglas:
 
 ## 9. Pruebas Automatizadas (PyTest + DeepChecks) y Chequeos de Seguridad
 
-En esta entrega se integró al repositorio una suite automatizada de **39 pruebas** en la carpeta dedicada `tests/` (29 pruebas de unidad, reproducibilidad, validación de datos con DeepChecks y seguridad del repositorio, 6 pruebas de los endpoints de la API REST con FastAPI y 4 pruebas de monitoreo de *drift* con Evidently y *A/B testing*) junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
+En esta entrega se integró al repositorio una suite automatizada de **45 pruebas** en la carpeta dedicada `tests/` (29 pruebas de unidad, reproducibilidad, validación de datos con DeepChecks y seguridad del repositorio, 6 pruebas de los endpoints síncronos de FastAPI, 4 pruebas de monitoreo de *drift* con Evidently y *A/B testing*, y 6 pruebas de microservicios, cola asíncrona Redis/RQ, Compose y CI/CD) junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
 
 ### 9.1 Estructura de la Carpeta `tests/`
 
@@ -270,7 +281,8 @@ tests/
 ├── test_data_deepchecks.py   <- 5 pruebas de validación de integridad, calidad y drift con DeepChecks para viajes crudos, P1, P2 y P3
 ├── test_security_repo.py     <- 3 pruebas automatizadas de seguridad (.gitignore, .env.example y ausencia de secretos)
 ├── test_api_fastapi.py       <- 6 pruebas de integración y validación Pydantic del servicio API REST (FastAPI)
-└── test_monitoring_drift_ab.py <- 4 pruebas de monitoreo de Data Drift con Evidently, lote Octubre 2026 y A/B Testing
+├── test_monitoring_drift_ab.py <- 4 pruebas de monitoreo de Data Drift con Evidently, lote Octubre 2026 y A/B Testing
+└── test_microservices_async.py <- 6 pruebas de tareas RQ, endpoints asíncronos (202/200/404/503), Compose y workflow CI/CD
 ```
 
 ---
@@ -289,6 +301,7 @@ tests/
 | `plots.*` y `train.leer_argumentos` / `construir_estimador` | Creación de archivos `.png` no vacíos para P1 y P2; reemplazo automático de `"from_config"` por las constantes de `mibici/config.py`. | Rechazo con `ValueError` ante preguntas o nombres de modelos no reconocidos (`p99`, `modelo_inexistente`). |
 | `train.registrar_artefactos_y_modelo` | Registro completo en un servidor SQLite de MLflow del dataset de entrenamiento (`mlflow.log_input` con `digest`), manifiesto en `data/data_version.json`, configuración en `config/config.py` y `config/run_config.json`, gráficas en `plots/` y modelo serializado con `signature`, `input_example` y etiqueta `logged_model_uri`. | Verificación de recuperación e inferencia del modelo registrado desde su URI `models:/m-...` comprobando que las predicciones coincidan exactamente con las del modelo en memoria. |
 | **Monitoreo de *Drift* con Evidently y *A/B Testing*** (`test_monitoring_drift_ab.py`) | Ejecución de `Report([DataDriftPreset(), DataSummaryPreset()])` verificando detección de *drift* en variables desplazadas, generación de reporte HTML, validación del manifiesto SHA-256 `data_version_2026_10.json` y estructura de resultados A/B (`v2` vs. `v3`) para P1, P2 y P3. | Verificación de caso límite con distribuciones de referencia y actual idénticas (`0` columnas con *drift* y `0` celdas faltantes) y manejo de rutas fuera de `PROJ_ROOT` (`tmp_path`). |
+| **Microservicios, Cola RQ, Compose y CI/CD** (`test_microservices_async.py`) | Ejecución directa de `tasks.ejecutar_prediccion_p1_asincrona`, flujo encolado `POST /predict/async/p1-demanda` (HTTP 202) y consulta `GET /jobs/{job_id}` (HTTP 200), validación de los 4 servicios con red/volúmenes/*healthchecks* en `docker-compose.yml` y estructura de los 4 *jobs* de `.github/workflows/ci-cd-mibici.yml`. | Manejo controlado de errores ante trabajo inexistente (HTTP 404) y caída o indisponibilidad del broker Redis (HTTP 503). |
 | **Reproducibilidad del entrenamiento** (`test_reproducibility.py`) | Dos ejecuciones independientes con la misma semilla (`RANDOM_SEED = 42`) para **P1** (`HistGradientBoostingRegressor`, `RandomForestRegressor`, `Ridge`), **P2** (`HistGradientBoostingClassifier`, `LogisticRegression`, `RandomForestClassifier`) y **P3** (`KMeans`). | Verificación estricta con `np.testing.assert_allclose` (`rtol=1e-12`, `atol=1e-12`) y `assert_array_equal` de que dos corridas con la misma semilla producen **exactamente las mismas predicciones, probabilidades, asignaciones de cluster y métricas** (`MAE`, `R2`, `F1-Score`, `ROC-AUC` y `Silhouette Score`). |
 
 ---
@@ -349,7 +362,7 @@ Desde la raíz del repositorio con el entorno virtual activado (`source .venv/bi
   ```
 
 * **Modo 2 — Con dataset sintético de respaldo (en un clon limpio sin haber ejecutado aún la ingesta):**
-  Si acabas de clonar el repositorio y deseas correr las 39 pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
+  Si acabas de clonar el repositorio y deseas correr las 45 pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
   ```bash
   MIBICI_TEST_DATA_MODE=synthetic pytest
   # O mediante el comando del Makefile:
@@ -396,6 +409,10 @@ En esta entrega se empaquetaron los tres modelos campeones del proyecto MiBici (
 ```text
 ├── Containerfile                 <- Definición OCI de la imagen del contenedor (Python 3.14.3-slim + usuario no-root)
 ├── .containerignore              <- Excluye datasets pesados (.csv, .parquet), .venv y mlflow.db del contexto de build
+├── load_tests/
+│   ├── locustfile.py        <- Escenarios de pruebas de carga con Locust (síncrono P1/P2/P3 + asíncrono RQ)
+│   ├── monitorear_recursos.py <- Monitor automático de CPU/RAM con podman/docker stats
+│   └── analizar_carga_finops.py <- Generación de gráficas de desempeño/recursos y cálculo FinOps
 ├── mibici/
 │   └── api/
 │       ├── __init__.py           <- Inicializador del paquete del servicio REST
@@ -432,7 +449,7 @@ Con base en los criterios de arquitectura de sistemas de *Machine Learning* (Huy
 El módulo `mibici/api/schemas.py` valida todas las peticiones antes de invocar los modelos:
 * **Restricción de rangos operativos:** Verifica tipos numéricos y dominios válidos del AMG (`hora` $\in [0, 23]$, `dia_semana` $\in [0, 6]$, `mes` $\in [1, 12]$, `dpcapacity` $> 0$, `latitude` $\in [20.0, 21.5]$, `longitude` $\in [-104.0, -102.5]$ y proporciones $\in [0.0, 1.0]$).
 * **Protección de privacidad (`extra="forbid"`):** Cualquier petición que incluya campos no reconocidos o datos personales de usuarios (`Usuario_Id`, `Genero`, `Año_de_nacimiento`) es rechazada automáticamente con código HTTP `422 Unprocessable Entity`.
-* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), integrándose a la suite del repositorio de **39 pruebas automatizadas (`39 passed`)** y manteniendo **0 alertas** en `bandit` y `pip-audit`.
+* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), integrándose a la suite del repositorio (actualmente **45 pruebas automatizadas**, `45 passed`) y manteniendo **0 alertas** en `bandit` y `pip-audit`.
 
 ### 10.5 Instrucciones para Construir la Imagen, Levantar el Contenedor y Consumir la API con Podman
 
@@ -625,6 +642,10 @@ En esta entrega se dotó al proyecto MiBici de una capa de **observabilidad, det
 │   │   └── nomenclatura_2026_10.csv                <- Catálogo oficial actualizado de Octubre 2026 (470 estaciones)
 │   └── processed/
 │       └── data_version_2026_10.json               <- Manifiesto SHA-256 del lote de producción Octubre 2026 (3542d1d567e1)
+├── load_tests/
+│   ├── locustfile.py        <- Escenarios de pruebas de carga con Locust (síncrono P1/P2/P3 + asíncrono RQ)
+│   ├── monitorear_recursos.py <- Monitor automático de CPU/RAM con podman/docker stats
+│   └── analizar_carga_finops.py <- Generación de gráficas de desempeño/recursos y cálculo FinOps
 ├── mibici/
 │   └── monitoring/
 │       ├── __init__.py                             <- Inicializador del paquete de observabilidad y monitoreo
@@ -723,29 +744,215 @@ make ab-test
 mlflow run . -e ab_test --env-manager=local
 ```
 
-## 12. Referencias Bibliográficas
+## 12. Orquestación con Docker/Podman Compose, CI/CD, Pruebas de Carga y Análisis FinOps (Entregable 7)
+
+En esta fase de consolidación operativa se transformó la API contenerizada del proyecto MiBici (actualizada con los modelos `@champion` vigentes de la Semana 9: **P1 `v3`**, **P2 `v2`** y **P3 `v3`**) en una **arquitectura de 4 microservicios orquestada con un solo comando**, automatizada mediante un *pipeline* de **CI/CD en GitHub Actions**, evaluada bajo carga con **Locust** y analizada desde la perspectiva de consumo de recursos y **FinOps**.
+
+### 12.1 Arquitectura de Microservicios y Orquestación (`docker-compose.yml`)
+
+El archivo `docker-compose.yml` es compatible tanto con **`podman-compose`** (entorno local con Podman) como con **`docker compose`** (Docker y GitHub Actions). Orquesta cuatro contenedores conectados por la red privada dedicada **`mibici-net`**, con volúmenes persistentes (`mlflow_data` y `redis_data`), variables de entorno parametrizables (`.env.example`), *healthchecks*, `depends_on` condicional (`service_healthy`) y límites de CPU y memoria:
+
+| Servicio | Contenedor | Imagen / Build | Puerto Host $\to$ Contenedor | Límites (CPU / RAM) | Responsabilidad en el Sistema |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| **`mlflow-server`** | `mibici-mlflow` | `Containerfile` (`mibici-api-equipo35:1.1`) | `5001:5000` | `1.0` CPU / `1024m` | Servidor de Tracking y Model Registry con SQLite persistente en volumen `mlflow_data` (`MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false`, `--workers 1`). |
+| **`redis`** | `mibici-redis` | `redis:7.4-alpine` | `6379:6379` | `0.5` CPU / `256m` | *Broker* en memoria con persistencia AOF (`--appendonly yes`) en volumen `redis_data` para gestionar la cola de trabajos `mibici_predicciones`. |
+| **`mibici-api`** | `mibici-api` | `Containerfile` (`mibici-api-equipo35:1.1`) | `8000:8000` | `2.0` CPU / `1536m` | API REST en FastAPI (`v1.1.0`) que sirve inferencia síncrona (P1 `v3`, P2 `v2`, P3 `v3`), `/health`, `/metadata` y encolado asíncrono (`POST /predict/async/p1-demanda`, `GET /jobs/{job_id}`). |
+| **`rq-worker`** | `mibici-rq-worker` | `Containerfile` (`mibici-api-equipo35:1.1`) | Interno (`mibici-net`) | `1.0` CPU / `1024m` | *Worker* de RQ que consume trabajos en segundo plano desde Redis, ejecuta `mibici.api.tasks.ejecutar_prediccion_p1_asincrona` y guarda el resultado con TTL de 600 s. |
+
+*(Nota de portabilidad en macOS: `mlflow-server` expone por defecto el puerto `5001` en el host —configurable mediante `MLFLOW_PORT` en `.env`— para evitar conflictos con el servicio AirPlay Receiver de macOS en el puerto `5000`; dentro de la red interna `mibici-net`, la comunicación continúa ocurriendo en `http://mlflow-server:5000`).*
+
+### 12.2 Instrucciones para Levantar el Sistema Completo con un Solo Comando
+
+#### A) Levantar y verificar los 4 microservicios
+
+Con **Podman** (`podman-compose` instalado vía `brew install podman-compose` o `pip install podman-compose`):
+
+```bash
+# Construir la imagen y levantar los 4 microservicios en un solo comando
+podman-compose up -d --build
+# O mediante el atajo del Makefile:
+make compose-up
+
+# Verificar que los 4 contenedores estén en estado (healthy) y observar recursos
+podman ps
+podman stats --no-stream
+# O con Makefile:
+make compose-stats
+```
+
+Con **Docker** (`docker compose`):
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker stats --no-stream
+```
+
+#### B) Probar los endpoints síncronos (P1 `v3`, P2 `v2`, P3 `v3`) y el flujo asíncrono (Redis + RQ)
+
+```bash
+# 1. Salud del servidor MLflow y de la API REST (confirma modelos cargados y redis_conectado=true)
+curl -s http://127.0.0.1:5001/health && echo ""
+curl -s http://127.0.0.1:8000/health | python -m json.tool
+
+# 2. Inferencia síncrona (P1 v3, P2 v2 y P3 v3)
+curl -s -X POST http://127.0.0.1:8000/predict/p1-demanda \
+  -H "Content-Type: application/json" \
+  -d '{"hora":8,"dia_semana":1,"mes":10,"es_fin_de_semana":0,"es_hora_pico":1,"dpcapacity":19.0,"latitude":20.66769,"longitude":-103.368252,"lag_1_iniciados":6.0,"lag_2_iniciados":3.0,"lag_24_iniciados":5.0,"media_movil_3_iniciados":4.3333,"lag_1_terminados":2.0,"lag_1_flujo_neto":4.0,"lag_1_ratio_capacidad":0.2105}' | python -m json.tool
+
+# 3. Inferencia asíncrona (encolado en Redis -> procesamiento en rq-worker -> consulta /jobs/{job_id})
+RESP=$(curl -s -X POST http://127.0.0.1:8000/predict/async/p1-demanda \
+  -H "Content-Type: application/json" \
+  -d '{"hora":8,"dia_semana":1,"mes":10,"es_fin_de_semana":0,"es_hora_pico":1,"dpcapacity":19.0,"latitude":20.66769,"longitude":-103.368252,"lag_1_iniciados":6.0,"lag_2_iniciados":3.0,"lag_24_iniciados":5.0,"media_movil_3_iniciados":4.3333,"lag_1_terminados":2.0,"lag_1_flujo_neto":4.0,"lag_1_ratio_capacidad":0.2105}')
+echo "$RESP" | python -m json.tool
+JOB_ID=$(echo "$RESP" | python -c "import sys, json; print(json.load(sys.stdin)['job_id'])")
+sleep 2
+curl -s "http://127.0.0.1:8000/jobs/$JOB_ID" | python -m json.tool
+
+# 4. Detener todos los microservicios al finalizar
+podman-compose down
+# O: make compose-down / docker compose down
+```
+
+### 12.3 Pipeline de CI/CD en GitHub Actions (`.github/workflows/ci-cd-mibici.yml`)
+
+El *workflow* **`CI/CD Microservicios MiBici (Equipo 35)`** se dispara automáticamente en cada `push` (ramas `main`, `feat/**`, `fix/**`, `docs/**`, `test/**`), en cada `pull_request` hacia `main` y de forma manual mediante `workflow_dispatch` desde la pestaña **Actions** de GitHub. Incluye cancelación de corridas redundantes (`concurrency`) y cuatro etapas encadenadas:
+
+1. **`pruebas-y-calidad` (Matriz CI en paralelo con caché de `pip`):** Corre dentro de la imagen oficial `python:3.14.3-slim` (garantizando paridad exacta con `Containerfile` y `pyproject.toml`) y divide las **45 pruebas** en dos *jobs* paralelos:
+   * `unit-api-microservices`: `test_unit_mibici.py`, `test_reproducibility.py`, `test_api_fastapi.py` y `test_microservices_async.py`.
+   * `data-monitoring-security`: `test_data_deepchecks.py` (en modo sintético reproducible), `test_monitoring_drift_ab.py`, `test_security_repo.py` y análisis estático con `bandit -r mibici/`.
+2. **`build-y-despliegue-compose` (CD + Validación E2E):** Construye la imagen OCI desde `Containerfile` con `docker/build-push-action@v6` y caché de capas de GitHub Actions (`type=gha`), valida `docker compose config --quiet`, levanta los **4 microservicios reales** (`docker compose up -d --no-build`), espera hasta que los 4 reporten estado `healthy` y ejecuta pruebas de humo E2E contra MLflow (`:5001/health`), API (`/health` con `redis_conectado=true`), predicciones síncronas (P1, P2, P3) y el ciclo asíncrono completo en Redis/RQ (`/predict/async/p1-demanda` $\to$ `/jobs/{job_id}` con `status=finished`).
+3. **`publicar-imagen-ghcr` (Publicación en Registro):** Cuando el *pipeline* supera pruebas y despliegue en un `push` a `main`, autentica con `GITHUB_TOKEN` y publica automáticamente la imagen etiquetada como `:latest` y `:<short_sha>` en **GitHub Container Registry (`ghcr.io/figueroa-alex/tc5061-proyecto-equipo35`)**.
+4. **`notificacion-resumen-pipeline` (Resumen automático):** Genera una tabla de estado por etapa directamente en **`GITHUB_STEP_SUMMARY`** para facilitar la auditoría en cada PR y *release*.
+
+### 12.4 Pruebas de Carga con Locust y Monitoreo de Recursos (`podman stats`)
+
+Se diseñó el escenario `load_tests/locustfile.py` (`UsuarioOperativoMiBici`) simulando el perfil mixto del centro de control de MiBici: **40%** `POST /predict/p1-demanda`, **30%** `POST /predict/p2-riesgo`, **10%** `POST /predict/p3-grupos`, **10%** flujo asíncrono (`POST /predict/async/p1-demanda` + `GET /jobs/[job_id]`) y **10%** `GET /health`, con pausa entre peticiones de `0.2` a `0.8` segundos y estaciones reales del AMG.
+
+#### Cómo ejecutar Locust (ambos modos soportados)
+
+* **Modo 1 — Modo *Headless* (automatizado para generar CSV y reportes HTML) + captura simultánea de `podman stats`:**
+```bash
+source .venv/bin/activate
+mkdir -p reports/operations
+
+# Escenario A: Carga normal operativa (10 usuarios, rampa 2/s, 30 s)
+python load_tests/monitorear_recursos.py --engine podman --duration 34 --interval 2 \
+  --output reports/operations/podman_stats_normal.csv &
+PID_A=$!
+locust -f load_tests/locustfile.py --headless --host http://127.0.0.1:8000 \
+  --users 10 --spawn-rate 2 --run-time 30s \
+  --csv=reports/operations/locust_normal \
+  --html=reports/operations/locust_report_normal.html
+wait $PID_A
+
+# Escenario B: Carga pico / estrés (50 usuarios, rampa 5/s, 60 s)
+python load_tests/monitorear_recursos.py --engine podman --duration 64 --interval 2 \
+  --output reports/operations/podman_stats_pico.csv &
+PID_B=$!
+locust -f load_tests/locustfile.py --headless --host http://127.0.0.1:8000 \
+  --users 50 --spawn-rate 5 --run-time 60s \
+  --csv=reports/operations/locust_pico \
+  --html=reports/operations/locust_report_pico.html
+wait $PID_B
+
+# Generar gráficas PNG y resumen JSON FinOps
+python load_tests/analizar_carga_finops.py
+# O con Makefile:
+make finops-report
+```
+
+* **Modo 2 — Interfaz Web Interactiva de Locust (Web UI):**
+```bash
+source .venv/bin/activate
+locust -f load_tests/locustfile.py --host http://127.0.0.1:8000
+# O con Makefile:
+make locust-ui
+# Abrir en el navegador: http://127.0.0.1:8089
+```
+
+#### Resultados observados de desempeño bajo carga
+
+| Escenario | Usuarios / Duración | Peticiones Totales | Tasa de Error | RPS Total | RPS Inferencia ML | Latencia P50 (ms) | Latencia Prom. (ms) | Latencia P95 (ms) | Latencia P99 (ms) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Normal (Operativo)** | 10 / 30 s | `579` | `0.00%` (0 fallos) | `19.89` | `16.11` | `5.0` | `6.43` | `12.0` | `27.0` |
+| **Pico (Estrés)** | 50 / 60 s | `5,378` | `0.00%` (0 fallos) | `90.98` | `73.45` | `35.0` | `45.45` | `130.0` | `280.0` |
+
+* **Desglose por *endpoint* en carga pico (50 usuarios):** `POST /predict/p1-demanda` (`1,936` reqs, `32.75` RPS, P50 `55` ms, P95 `170` ms, P99 `310` ms) y `POST /predict/p2-riesgo` (`1,390` reqs, `23.52` RPS, P50 `47` ms, P95 `150` ms, P99 `290` ms) concentran la latencia por ser ensambles `HistGradientBoosting` ejecutados de forma síncrona en un solo *worker* de Uvicorn. En contraste, `POST /predict/p3-grupos` (K-Means) mantuvo P50 de `5` ms y P95 de `17` ms, mientras que el encolado asíncrono (`POST /predict/async/p1-demanda`) respondió en `8` ms de mediana (P95 `31` ms), validando el valor arquitectónico de desacoplar inferencias pesadas con Redis + RQ.
+
+![Desempeño de pruebas de carga con Locust en el proyecto MiBici](reports/figures/locust_desempeno_carga.png)
+
+#### Consumo de recursos observado (`podman stats` en carga pico — 50 usuarios)
+
+| Contenedor | CPU Promedio (%) | CPU Pico (%) | RAM Promedio (MB) | RAM Pico (MB) | Límite Asignado |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **`mibici-api`** | `7.27%` | `12.09%` | `267.48` | `279.00` | `1,611 MB` (`2.0` CPU) |
+| **`mibici-rq-worker`** | `17.43%` | `22.96%` | `169.95` | `239.50` | `1,074 MB` (`1.0` CPU) |
+| **`mibici-mlflow`** | `1.76%` | `1.80%` | `426.89` | `428.30` | `1,074 MB` (`1.0` CPU) |
+| **`mibici-redis`** | `0.84%` | `0.89%` | `6.03` | `6.96` | `268 MB` (`0.5` CPU) |
+| **Total 4 servicios** | **`27.30%`** | **`37.74%`** | **`870.35`** | **`953.76`** | **`4,027 MB` (`4.5` CPU)** |
+
+* **Optimización real de memoria aplicada en MLflow:** Al desactivar el ejecutor de trabajos interno de MLflow 3.17.2 (`MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false`) y limitar Uvicorn a `--workers 1`, la memoria de `mibici-mlflow` se redujo de **`2,041.0 MB`** (que generaba reinicios OOM con 7 procesos *huey*) a **`428.3 MB`** (**ahorro de `1,612.7 MB` / `79.0%`**), permitiendo que todo el sistema opere por debajo de `1 GiB` de RAM pico.
+
+![Monitoreo de CPU y memoria RAM con podman stats durante la prueba pico](reports/figures/recursos_contenedores_stats.png)
+
+### 12.5 Análisis FinOps: Costo por Inferencia y Optimizaciones
+
+Con base en el consumo real medido (`953.76 MB` de RAM pico y `37.74%` de CPU pico combinada) y tarifas públicas de referencia de **AWS EC2 Linux (`us-east-1`)** más `20 GB` de almacenamiento **EBS `gp3`** (`$1.60 USD/mes`), se evaluó la economía unitaria en tres horizontes de volumen mensual (siguiendo el marco *FinOps for AI* de reportar costo por unidad como rango según utilización):
+
+1. **Demanda operativa base MiBici AMG:** `525,600` inferencias/mes (`360` estaciones activas $\times$ `24` h $\times$ `2` modelos P1+P2 $\times$ `30.42` días).
+2. **Tráfico medio (10% del RPS normal medido):** `4,234,867` inferencias/mes (`1.61` inf/s sostenidas).
+3. **Capacidad máxima probada (100% del RPS pico ML):** `193,039,444` inferencias/mes (`73.45` inf/s).
+
+| Escenario FinOps (AWS `us-east-1` + 20 GB EBS `gp3`) | Tarifa Hora (USD) | Costo Total / Mes (USD) | Ahorro vs. Base | Costo / 1M Inf. (Base: 526k/mes) | Costo / 1M Inf. (Medio: 4.23M/mes) | Costo / 1M Inf. (Cap. Pico) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Línea base:** `t3.medium` (2 vCPU, 4 GiB, x86, OD 24/7) | `$0.0416` | `$31.97` | `0.0%` | `$60.82` (`$0.0000608`/inf) | `$7.55` | `$0.1656` |
+| **Opt. 1 (Rightsizing):** `t3.small` (2 vCPU, 2 GiB, x86, OD 24/7) | `$0.0208` | `$16.78` | **`47.5%`** | `$31.93` (`$0.0000319`/inf) | `$3.96` | `$0.0869` |
+| **Opt. 2 (Graviton ARM):** `t4g.small` (2 vCPU, 2 GiB, ARM64, OD 24/7) | `$0.0168` | `$13.86` | **`56.6%`** | `$26.38` (`$0.0000264`/inf) | `$3.27` | `$0.0718` |
+| **Opt. 3 (ARM + RI 1 año):** `t4g.small` (Reserved 1 año, No Upfront) | `$0.0110` | **`$9.63`** | **`69.9%`** | **`$18.32`** (`$0.0000183`/inf) | **`$2.27`** | **`$0.0499`** |
+| **Opt. 4 (ARM + Horario):** `t4g.small` (OD programado 18 h/día) | `$0.0168` | `$10.80` | **`66.2%`** | `$20.54` (`$0.0000205`/inf) | `$2.55` | `$0.0746` |
+
+![Análisis FinOps de costo mensual y costo por millón de inferencias](reports/figures/finops_costo_inferencia.png)
+
+**Optimizaciones FinOps recomendadas (respaldadas por los datos):**
+1. **Rightsizing + migración a ARM Graviton (`t4g.small`):** Como el pico combinado de los 4 servicios es de `953.76 MB` (< 50% de 2 GiB) y `< 0.4` vCPU, migrar de `t3.medium` a `t4g.small` (ya probado nativamente en ARM64) reduce el gasto mensual en **`56.6%`** (y hasta **`69.9%`** con compromiso reservado a 1 año, llegando a **`$9.63 USD/mes`**).
+2. **Desacoplar `mlflow-server` del nodo de inferencia:** `mibici-mlflow` consume `428.3 MB` (`44.9%` de la RAM total) pero solo `1.80%` de CPU; al servir desde `registry_bundle` en producción y encender MLflow solo en ventanas de reentrenamiento/registro, la huella de inferencia baja a **`525.46 MB`**, habilitando instancias aún menores (`t4g.micro` de 1 GiB para tráfico base).
+3. **Escalamiento de *workers* Uvicorn y modo *SimpleWorker* / *batching* en RQ:** Pasar de 1 a 2 *workers* en Uvicorn aprovecharía las 2 vCPU disponibles para reducir el P95 de P1 (`170 ms`) y P2 (`150 ms`), y usar inferencia por lotes (*micro-batching*) en el corte horario de las 360 estaciones reduciría la sobrecarga de *fork* observada en `mibici-rq-worker`.
+4. **Caché de predicciones en Redis y apagado programado en madrugada:** Aprovechar Redis (actualmente en `6.96 MB` de RAM) para cachear resultados de P1/P2 por `(estacion, hora)` con TTL de 5 minutos y programar ventanas de cómputo acordes al horario operativo de MiBici (`05:00` a `23:59`, ahorro del `66.2%` sin compromiso anual).
+
+## 13. Referencias Bibliográficas
 
 * Acuerdo DIELAG ACU 065/2022. (2022, 13 de octubre). Acuerdo del Ciudadano Gobernador Constitucional del Estado Libre y Soberano de Jalisco, mediante el cual se abroga el diverso acuerdo DIELAG ACU 016/2022. *Periódico Oficial "El Estado de Jalisco"*, Tomo CDV(28, Sección IV), 3–7.
+* Amazon Web Services. (2026). *Amazon EC2 On-Demand and Reserved Instance Pricing (US East - N. Virginia)*. [https://aws.amazon.com/ec2/pricing/](https://aws.amazon.com/ec2/pricing/)
 * Colvin, S., Jolibois, E., Ramezani, H., Garcia Badaracco, A., Dorsey, T., Montague, D., Matveenko, S., Trylesinski, M., Runkle, S., Hewitt, D., & Hall, A. (2024). *Pydantic documentation: Data validation using Python type hints*. [https://docs.pydantic.dev/latest/](https://docs.pydantic.dev/latest/)
+* Containers Organization. (2026). *podman-compose: A script to run docker-compose.yml using Podman* [Software]. GitHub. [https://github.com/containers/podman-compose](https://github.com/containers/podman-compose)
 * Conventional Commits. (s.f.). *Conventional Commits 1.0.0* [Especificación]. [https://www.conventionalcommits.org/es/v1.0.0/](https://www.conventionalcommits.org/es/v1.0.0/)
 * Deepchecks. (2024). *Deepchecks documentation: Continuous validation for machine learning*. [https://docs.deepchecks.com/stable/getting-started/welcome.html](https://docs.deepchecks.com/stable/getting-started/welcome.html)
+* Docker Inc. (2026). *Docker Compose and docker container stats documentation*. [https://docs.docker.com/compose/](https://docs.docker.com/compose/)
 * DrivenData. (2024). *Cookiecutter Data Science* (Versión 2) [Documentación]. [https://cookiecutter-data-science.drivendata.org/](https://cookiecutter-data-science.drivendata.org/)
 * Encode. (2024). *Uvicorn: An ASGI web server implementation for Python*. [https://www.uvicorn.org/](https://www.uvicorn.org/)
 * Evidently AI. (2023, 28 de septiembre). *Tutorial de Evidently* [Serie de videos]. YouTube. [https://www.youtube.com/@EvidentlyAI](https://www.youtube.com/@EvidentlyAI)
-* Evidently AI. (2026). *Evidently documentation: Data and ML checks* (Versión 0.7.23). Recuperado el 18 de junio de 2026 de [https://docs.evidentlyai.com/introduction](https://docs.evidentlyai.com/introduction)
+* Evidently AI. (2026). *Evidently documentation: Data and ML checks* (Versión 0.7.23). [https://docs.evidentlyai.com/introduction](https://docs.evidentlyai.com/introduction)
+* FinOps Foundation. (2026). *FinOps for AI overview*. Linux Foundation. [https://www.finops.org/wg/finops-for-ai-overview/](https://www.finops.org/wg/finops-for-ai-overview/)
+* Gift, N., & Deza, A. (2021). *Practical MLOps: Operationalizing machine learning models*. O'Reilly Media.
+* GitHub. (2026). *Quickstart for GitHub Actions and GitHub Container Registry*. GitHub Docs. [https://docs.github.com/en/actions/get-started/quickstart](https://docs.github.com/en/actions/get-started/quickstart)
 * Google. (2026). *Gemini* (Versión Gemini 3.8) [Modelo de lenguaje grande], utilizado para la revisión de redacción y código. [https://gemini.google.com/](https://gemini.google.com/)
 * Grossmann, J., Wiesbrock, H., & Motta, M. (2021). *Testing ML-based systems*. European Telecommunications Standards Institute (ETSI).
+* Heyman, J., & Holmberg, L. (2026). *Locust documentation: An open source load testing tool* (Versión 2.47.0). [https://docs.locust.io/en/stable/](https://docs.locust.io/en/stable/)
 * Huyen, C. (2022). *Designing machine learning systems: An iterative process for production-ready applications*. O'Reilly Media.
 * Krekel, H., Oliveira, B., Pfannschmidt, R., Bruynooghe, F., Laugher, B., & Bruhin, F. (2024). *pytest: Helps you write better programs*. [https://docs.pytest.org/en/stable/](https://docs.pytest.org/en/stable/)
 * Lakshmanan, V., Robinson, S., & Munn, M. (2020). *Machine learning design patterns: Solutions to common challenges in data preparation, model building, and MLOps*. O'Reilly Media.
 * MiBici. (2026). *Datos abiertos del sistema de bicicletas públicas MiBici* [Conjunto de datos]. Agencia Metropolitana de Servicios de Infraestructura para la Movilidad del Área Metropolitana de Guadalajara. [https://mibici.net/es/datos-abiertos/](https://mibici.net/es/datos-abiertos/)
 * MLflow. (2026). *MLflow documentation: MLflow Tracking, Model Registry and Deployment*. [https://mlflow.org/docs/latest/ml/model-registry/](https://mlflow.org/docs/latest/ml/model-registry/)
+* Ong, S., & Driessen, V. (2026). *RQ: Simple job queues for Python* (Versión 3.0.0). [https://python-rq.org/](https://python-rq.org/)
 * Open Container Initiative. (2024). *OCI Image Format Specification*. Linux Foundation. [https://github.com/opencontainers/image-spec](https://github.com/opencontainers/image-spec)
 * Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., & Duchesnay, É. (2011). Scikit-learn: Machine learning in Python. *Journal of Machine Learning Research*, 12(85), 2825–2830. [http://jmlr.org/papers/v12/pedregosa11a.html](http://jmlr.org/papers/v12/pedregosa11a.html)
-* Podman. (2026). *Podman documentation*. Red Hat / Containers Organization. [https://docs.podman.io/en/latest/](https://docs.podman.io/en/latest/)
+* Podman. (2026). *Podman documentation (podman-stats)*. Red Hat / Containers Organization. [https://docs.podman.io/en/latest/markdown/podman-stats.1.html](https://docs.podman.io/en/latest/markdown/podman-stats.1.html)
 * PyCQA. (2024). *Bandit: A tool designed to find common security issues in Python code*. Python Code Quality Authority. [https://bandit.readthedocs.io/en/latest/](https://bandit.readthedocs.io/en/latest/)
 * Python Packaging Authority. (2024). *pip-audit: Audits Python environments and dependency trees for known vulnerabilities*. [https://pypi.org/project/pip-audit/](https://pypi.org/project/pip-audit/)
 * Ramírez, S. (2024). *FastAPI documentation: FastAPI in containers - Docker*. [https://fastapi.tiangolo.com/deployment/docker/](https://fastapi.tiangolo.com/deployment/docker/)
 * Red Hat. (2026). *What is Podman?*. [https://www.redhat.com/en/topics/containers/what-is-podman](https://www.redhat.com/en/topics/containers/what-is-podman)
+* Redis Ltd. (2026). *Redis documentation*. [https://redis.io/docs/latest/](https://redis.io/docs/latest/)
+* Shaw, T. (2024, 1 de septiembre). *CI/CD Tutorial using GitHub Actions* [Video]. YouTube. [https://www.youtube.com/watch?v=YLtlz88zrLg](https://www.youtube.com/watch?v=YLtlz88zrLg)
 * Treveil, M., Omont, N., Stenac, C., Lefevre, K., Phan, D., Zentici, J., Lavoillotte, A., Miyazaki, M., & Heidmann, L. (2020). *Introducing MLOps: How to scale machine learning in the enterprise*. O'Reilly Media.
 * Wilson, B. (2022). *Machine learning engineering in action*. Manning Publications.
