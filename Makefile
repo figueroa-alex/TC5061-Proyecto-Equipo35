@@ -162,3 +162,33 @@ drift-report:
 .PHONY: ab-test
 ab-test:
 	MLFLOW_TRACKING_URI=http://127.0.0.1:5000 $(PYTHON_INTERPRETER) -m mibici.monitoring.ab_testing
+
+#################################################################################
+# ORQUESTACIÓN DE MICROSERVICIOS CON COMPOSE (ENTREGABLE 7 - EQUIPO 35)         #
+#################################################################################
+
+## Construir y levantar todos los microservicios (MLflow, Redis, API, RQ Worker)
+.PHONY: compose-up
+compose-up:
+	podman-compose up -d --build
+
+## Detener y eliminar los contenedores orquestados con Compose
+.PHONY: compose-down
+compose-down:
+	podman-compose down
+
+## Ver el estado y consumo de recursos instantáneo de los contenedores activos
+.PHONY: compose-stats
+compose-stats:
+	podman ps
+	podman stats --no-stream
+
+## Ejecutar pruebas de carga con Locust en modo web interactivo (http://127.0.0.1:8089)
+.PHONY: locust-ui
+locust-ui:
+	$(PYTHON_INTERPRETER) -m locust -f load_tests/locustfile.py --host http://127.0.0.1:8000
+
+## Generar gráficas de desempeño, uso de recursos y resumen JSON FinOps
+.PHONY: finops-report
+finops-report:
+	$(PYTHON_INTERPRETER) load_tests/analizar_carga_finops.py

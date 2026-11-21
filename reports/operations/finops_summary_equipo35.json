@@ -1,0 +1,287 @@
+{
+    "team": "Equipo35",
+    "locust_normal": {
+        "usuarios": 10,
+        "duracion_seg": 30,
+        "peticiones_totales": 579,
+        "fallos_totales": 0,
+        "tasa_error_pct": 0.0,
+        "rps_total": 19.89,
+        "rps_inferencia_ml": 16.11,
+        "latencia_p50_ms": 5.0,
+        "latencia_promedio_ms": 6.43,
+        "latencia_p95_ms": 12.0,
+        "latencia_p99_ms": 27.0,
+        "latencia_max_ms": 73.14
+    },
+    "locust_pico": {
+        "usuarios": 50,
+        "duracion_seg": 60,
+        "peticiones_totales": 5378,
+        "fallos_totales": 0,
+        "tasa_error_pct": 0.0,
+        "rps_total": 90.98,
+        "rps_inferencia_ml": 73.45,
+        "latencia_p50_ms": 35.0,
+        "latencia_promedio_ms": 45.45,
+        "latencia_p95_ms": 130.0,
+        "latencia_p99_ms": 280.0,
+        "latencia_max_ms": 528.65,
+        "por_endpoint": [
+            {
+                "endpoint": "GET /health",
+                "peticiones": 498,
+                "fallos": 0,
+                "rps": 8.42,
+                "p50_ms": 6.0,
+                "promedio_ms": 10.36,
+                "p95_ms": 26.0,
+                "p99_ms": 79.0,
+                "max_ms": 240.32
+            },
+            {
+                "endpoint": "GET /jobs/[job_id]",
+                "peticiones": 538,
+                "fallos": 0,
+                "rps": 9.1,
+                "p50_ms": 7.0,
+                "promedio_ms": 11.53,
+                "p95_ms": 30.0,
+                "p99_ms": 69.0,
+                "max_ms": 205.94
+            },
+            {
+                "endpoint": "POST /predict/async/p1-demanda",
+                "peticiones": 542,
+                "fallos": 0,
+                "rps": 9.17,
+                "p50_ms": 8.0,
+                "promedio_ms": 11.88,
+                "p95_ms": 31.0,
+                "p99_ms": 66.0,
+                "max_ms": 225.27
+            },
+            {
+                "endpoint": "POST /predict/p1-demanda",
+                "peticiones": 1936,
+                "fallos": 0,
+                "rps": 32.75,
+                "p50_ms": 55.0,
+                "promedio_ms": 70.87,
+                "p95_ms": 170.0,
+                "p99_ms": 310.0,
+                "max_ms": 528.65
+            },
+            {
+                "endpoint": "POST /predict/p2-riesgo",
+                "peticiones": 1390,
+                "fallos": 0,
+                "rps": 23.52,
+                "p50_ms": 47.0,
+                "promedio_ms": 61.62,
+                "p95_ms": 150.0,
+                "p99_ms": 290.0,
+                "max_ms": 469.62
+            },
+            {
+                "endpoint": "POST /predict/p3-grupos",
+                "peticiones": 474,
+                "fallos": 0,
+                "rps": 8.02,
+                "p50_ms": 5.0,
+                "promedio_ms": 7.94,
+                "p95_ms": 17.0,
+                "p99_ms": 90.0,
+                "max_ms": 121.8
+            }
+        ]
+    },
+    "recursos_podman_stats": {
+        "normal_10_usuarios": {
+            "mibici-api": {
+                "cpu_promedio_pct": 2.31,
+                "cpu_pico_pct": 2.57,
+                "ram_promedio_mb": 247.07,
+                "ram_pico_mb": 259.8,
+                "ram_limite_mb": 1611.0
+            },
+            "mibici-mlflow": {
+                "cpu_promedio_pct": 1.83,
+                "cpu_pico_pct": 1.87,
+                "ram_promedio_mb": 423.88,
+                "ram_pico_mb": 425.3,
+                "ram_limite_mb": 1074.0
+            },
+            "mibici-redis": {
+                "cpu_promedio_pct": 0.82,
+                "cpu_pico_pct": 0.83,
+                "ram_promedio_mb": 5.15,
+                "ram_pico_mb": 5.51,
+                "ram_limite_mb": 268.4
+            },
+            "mibici-rq-worker": {
+                "cpu_promedio_pct": 6.45,
+                "cpu_pico_pct": 10.17,
+                "ram_promedio_mb": 193.0,
+                "ram_pico_mb": 249.7,
+                "ram_limite_mb": 1074.0
+            }
+        },
+        "pico_50_usuarios": {
+            "mibici-api": {
+                "cpu_promedio_pct": 7.27,
+                "cpu_pico_pct": 12.09,
+                "ram_promedio_mb": 267.48,
+                "ram_pico_mb": 279.0,
+                "ram_limite_mb": 1611.0
+            },
+            "mibici-mlflow": {
+                "cpu_promedio_pct": 1.76,
+                "cpu_pico_pct": 1.8,
+                "ram_promedio_mb": 426.89,
+                "ram_pico_mb": 428.3,
+                "ram_limite_mb": 1074.0
+            },
+            "mibici-redis": {
+                "cpu_promedio_pct": 0.84,
+                "cpu_pico_pct": 0.89,
+                "ram_promedio_mb": 6.03,
+                "ram_pico_mb": 6.96,
+                "ram_limite_mb": 268.4
+            },
+            "mibici-rq-worker": {
+                "cpu_promedio_pct": 17.43,
+                "cpu_pico_pct": 22.96,
+                "ram_promedio_mb": 169.95,
+                "ram_pico_mb": 239.5,
+                "ram_limite_mb": 1074.0
+            }
+        },
+        "totales_pico_4_servicios": {
+            "cpu_promedio_combinada_pct": 27.3,
+            "cpu_pico_combinada_pct": 37.74,
+            "ram_promedio_combinada_mb": 870.35,
+            "ram_pico_combinada_mb": 953.76,
+            "ram_pico_solo_inferencia_sin_mlflow_mb": 525.46
+        },
+        "optimizacion_mlflow_aplicada": {
+            "ram_antes_mb": 2041.0,
+            "ram_despues_mb": 428.3,
+            "ahorro_ram_mb": 1612.7,
+            "ahorro_ram_pct": 79.0
+        }
+    },
+    "finops": {
+        "region_referencia": "AWS us-east-1 (Linux)",
+        "horas_mes_estandar": 730.0,
+        "almacenamiento_ebs_gp3_gb": 20.0,
+        "almacenamiento_ebs_mes_usd": 1.6,
+        "volumenes_mensuales_referencia": {
+            "operativa_base_mibici_360_estaciones": 525600.0,
+            "trafico_medio_10pct_normal": 4234867.0,
+            "capacidad_maxima_pico_100pct": 193039444.0
+        },
+        "escenarios": [
+            {
+                "id": "baseline_t3_medium_od",
+                "etiqueta": "Línea base t3.medium (OD)",
+                "etiqueta_grafica": "Línea base\nt3.medium (OD)",
+                "instancia": "t3.medium (2 vCPU, 4 GiB, x86)",
+                "modalidad": "On-Demand 24/7",
+                "tarifa_hora_usd": 0.0416,
+                "horas_mes": 730.0,
+                "costo_computo_mes_usd": 30.37,
+                "costo_almacenamiento_mes_usd": 1.6,
+                "costo_total_mes_usd": 31.97,
+                "costo_hora_efectivo_usd": 0.04379,
+                "costo_por_inferencia_operativa_base_usd": 6.082e-05,
+                "costo_por_1m_operativa_base_usd": 60.82,
+                "costo_por_inferencia_normal10_usd": 7.55e-06,
+                "costo_por_1m_normal10_usd": 7.55,
+                "costo_por_inferencia_capacidad_pico_usd": 1.656e-07,
+                "costo_por_1m_capacidad_pico_usd": 0.1656,
+                "ahorro_vs_baseline_pct": 0.0
+            },
+            {
+                "id": "opt1_t3_small_od",
+                "etiqueta": "Opt. 1: Rightsizing t3.small (OD)",
+                "etiqueta_grafica": "Opt. 1: Rightsizing\nt3.small (OD)",
+                "instancia": "t3.small (2 vCPU, 2 GiB, x86)",
+                "modalidad": "On-Demand 24/7",
+                "tarifa_hora_usd": 0.0208,
+                "horas_mes": 730.0,
+                "costo_computo_mes_usd": 15.18,
+                "costo_almacenamiento_mes_usd": 1.6,
+                "costo_total_mes_usd": 16.78,
+                "costo_hora_efectivo_usd": 0.02299,
+                "costo_por_inferencia_operativa_base_usd": 3.193e-05,
+                "costo_por_1m_operativa_base_usd": 31.93,
+                "costo_por_inferencia_normal10_usd": 3.96e-06,
+                "costo_por_1m_normal10_usd": 3.96,
+                "costo_por_inferencia_capacidad_pico_usd": 8.69e-08,
+                "costo_por_1m_capacidad_pico_usd": 0.0869,
+                "ahorro_vs_baseline_pct": 47.5
+            },
+            {
+                "id": "opt2_t4g_small_od",
+                "etiqueta": "Opt. 2: Graviton ARM t4g.small (OD)",
+                "etiqueta_grafica": "Opt. 2: Graviton ARM\nt4g.small (OD)",
+                "instancia": "t4g.small (2 vCPU, 2 GiB, ARM64)",
+                "modalidad": "On-Demand 24/7",
+                "tarifa_hora_usd": 0.0168,
+                "horas_mes": 730.0,
+                "costo_computo_mes_usd": 12.26,
+                "costo_almacenamiento_mes_usd": 1.6,
+                "costo_total_mes_usd": 13.86,
+                "costo_hora_efectivo_usd": 0.01899,
+                "costo_por_inferencia_operativa_base_usd": 2.638e-05,
+                "costo_por_1m_operativa_base_usd": 26.38,
+                "costo_por_inferencia_normal10_usd": 3.27e-06,
+                "costo_por_1m_normal10_usd": 3.27,
+                "costo_por_inferencia_capacidad_pico_usd": 7.18e-08,
+                "costo_por_1m_capacidad_pico_usd": 0.0718,
+                "ahorro_vs_baseline_pct": 56.6
+            },
+            {
+                "id": "opt3_t4g_small_ri1y",
+                "etiqueta": "Opt. 3: ARM + RI 1a t4g.small (RI 1 año)",
+                "etiqueta_grafica": "Opt. 3: ARM + RI 1a\nt4g.small (RI 1 año)",
+                "instancia": "t4g.small (2 vCPU, 2 GiB, ARM64)",
+                "modalidad": "Reserved 1 año (No Upfront)",
+                "tarifa_hora_usd": 0.011,
+                "horas_mes": 730.0,
+                "costo_computo_mes_usd": 8.03,
+                "costo_almacenamiento_mes_usd": 1.6,
+                "costo_total_mes_usd": 9.63,
+                "costo_hora_efectivo_usd": 0.01319,
+                "costo_por_inferencia_operativa_base_usd": 1.832e-05,
+                "costo_por_1m_operativa_base_usd": 18.32,
+                "costo_por_inferencia_normal10_usd": 2.27e-06,
+                "costo_por_1m_normal10_usd": 2.27,
+                "costo_por_inferencia_capacidad_pico_usd": 4.99e-08,
+                "costo_por_1m_capacidad_pico_usd": 0.0499,
+                "ahorro_vs_baseline_pct": 69.9
+            },
+            {
+                "id": "opt4_t4g_small_horario",
+                "etiqueta": "Opt. 4: ARM + Horario t4g.small (18h/día)",
+                "etiqueta_grafica": "Opt. 4: ARM + Horario\nt4g.small (18h/día)",
+                "instancia": "t4g.small (2 vCPU, 2 GiB, ARM64)",
+                "modalidad": "On-Demand programado (18 h/día)",
+                "tarifa_hora_usd": 0.0168,
+                "horas_mes": 547.5,
+                "costo_computo_mes_usd": 9.2,
+                "costo_almacenamiento_mes_usd": 1.6,
+                "costo_total_mes_usd": 10.8,
+                "costo_hora_efectivo_usd": 0.01972,
+                "costo_por_inferencia_operativa_base_usd": 2.054e-05,
+                "costo_por_1m_operativa_base_usd": 20.54,
+                "costo_por_inferencia_normal10_usd": 2.55e-06,
+                "costo_por_1m_normal10_usd": 2.55,
+                "costo_por_inferencia_capacidad_pico_usd": 7.46e-08,
+                "costo_por_1m_capacidad_pico_usd": 0.0746,
+                "ahorro_vs_baseline_pct": 66.2
+            }
+        ]
+    }
+}
