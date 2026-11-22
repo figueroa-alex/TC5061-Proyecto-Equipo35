@@ -386,11 +386,11 @@ make security
 
 ### 9.6 Evidencia de Ejecución Exitosa de Pruebas y Chequeos de Seguridad
 
-**1. Ejecución exitosa de las 39 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks en P1, P2 y P3 + Seguridad + API) sobre datos reales (`39 passed` sin *warnings*):**
+**1. Ejecución exitosa de las 45 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks en P1, P2 y P3 + Seguridad + API) sobre datos reales (`45 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo real](reports/figures/evidencia_pytest_real.png)
 
-**2. Ejecución exitosa de las 39 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `39 passed` sin *warnings*):**
+**2. Ejecución exitosa de las 45 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `45 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo sintético](reports/figures/evidencia_pytest_synthetic.png)
 
@@ -426,7 +426,7 @@ En esta entrega se empaquetaron los tres modelos campeones del proyecto MiBici (
 │       ├── p3_grupos/            <- Modelo registrado mibici-equipo35-p3-grupos (v2, @champion)
 │       └── registry_manifest.json<- Manifiesto con versión, alias, run_id, git_commit y data_version
 └── tests/
-    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 39 tests)
+    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 45 tests)
 ```
 
 ### 10.2 Opción Elegida para Recuperar los Modelos desde el Model Registry
@@ -663,7 +663,7 @@ En esta entrega se dotó al proyecto MiBici de una capa de **observabilidad, det
 │       ├── drift_summary_equipo35.json             <- Resumen cuantitativo de Data Drift y Data Quality
 │       └── ab_testing_results_equipo35.json        <- Métricas y pruebas estadísticas pareadas del A/B Testing
 └── tests/
-    └── test_monitoring_drift_ab.py                 <- 4 pruebas automatizadas de Evidently, lote 2026-10 y A/B Testing (total: 39 tests)
+    └── test_monitoring_drift_ab.py                 <- 4 pruebas automatizadas de Evidently, lote 2026-10 y A/B Testing (total: 45 tests)
 ```
 
 ### 11.2 Definición y Justificación de los Conjuntos de Datos (Referencia vs. Actual)
