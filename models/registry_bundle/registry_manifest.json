@@ -9,8 +9,8 @@
             "model_alias": "champion",
             "registry_uri_alias": "models:/mibici-equipo35-p1-demanda@champion",
             "registry_uri_version": "models:/mibici-equipo35-p1-demanda/3",
-            "run_id": "a329e5824c20435fac060f907662f41a",
-            "git_commit": "24299b0",
+            "run_id": "ffbea1f30aaf41d98c52f371a6fea813",
+            "git_commit": "f82ea75",
             "data_version": "128979137b46+3542d1d567e1",
             "bundle_relative_path": "models/registry_bundle/p1_demanda"
         },
@@ -21,8 +21,8 @@
             "model_alias": "champion",
             "registry_uri_alias": "models:/mibici-equipo35-p2-riesgo@champion",
             "registry_uri_version": "models:/mibici-equipo35-p2-riesgo/2",
-            "run_id": "941be04346ef49d8b521b868fee5dc32",
-            "git_commit": "24299b0",
+            "run_id": "3bcd2d0dc86c42feae230ac3cf8d9e1c",
+            "git_commit": "f82ea75",
             "data_version": "128979137b46",
             "bundle_relative_path": "models/registry_bundle/p2_riesgo"
         },
@@ -33,8 +33,8 @@
             "model_alias": "champion",
             "registry_uri_alias": "models:/mibici-equipo35-p3-grupos@champion",
             "registry_uri_version": "models:/mibici-equipo35-p3-grupos/3",
-            "run_id": "d760f719c670435bb95a74f268a0b7a9",
-            "git_commit": "24299b0",
+            "run_id": "dcbfa909e35f4616befcf6c1fed3fd12",
+            "git_commit": "f82ea75",
             "data_version": "128979137b46+3542d1d567e1",
             "bundle_relative_path": "models/registry_bundle/p3_grupos"
         }
