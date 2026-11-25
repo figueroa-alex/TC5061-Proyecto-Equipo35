@@ -1,12 +1,13 @@
 """
 Pruebas unitarias e integración para el módulo de monitoreo de Data Drift con Evidently
-y el ejercicio de A/B Testing entre versiones del modelo (Entregable 8 - Equipo 35).
+y el ejercicio de A/B Testing con bootstrap por bloques (Equipo 35).
 
 Verifica:
   1. Detección correcta de Data Drift y métricas de calidad con Evidently (Report + DataDriftPreset).
   2. Ausencia de drift falso cuando las distribuciones de referencia y actual son idénticas.
   3. Integridad del manifiesto de versión del lote de producción Octubre 2026 (data_version_2026_10.json).
-  4. Estructura y coherencia estadística de los resultados de A/B Testing y reportes generados.
+  4. Funcionamiento correcto del remuestreo bootstrap por bloques (media de error y F1-Score).
+  5. Estructura y coherencia estadística de los resultados de A/B Testing y reportes generados.
 """
 
 import json
@@ -16,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from mibici import config
-from mibici.monitoring import drift_report
+from mibici.monitoring import ab_testing, drift_report
 
 
 def test_evidently_detecta_drift_en_variable_desplazada(tmp_path: Path):
@@ -98,10 +99,61 @@ def test_manifiesto_octubre_2026_y_nomenclatura_versionados():
     assert len(cambios_nom["capacity_changes_vs_2026_09"]) == 11
 
 
+def test_bootstrap_bloques_media_error_detecta_mejora_real():
+    """
+    Verifica que bootstrap_bloques_media_error estime correctamente un intervalo de
+    confianza al 95% estrictamente negativo cuando v3 reduce el error en todos los bloques.
+    """
+    bloques = np.repeat(np.arange(1, 21), 10)  # 20 bloques de 10 observaciones
+    error_v2 = np.full(200, 2.0, dtype="float64")
+    error_v3 = np.full(200, 1.4, dtype="float64")
+
+    res = ab_testing.bootstrap_bloques_media_error(
+        error_v2=error_v2,
+        error_v3=error_v3,
+        bloques=bloques,
+        unidad_bloque="dias",
+        metrica="mae",
+        n_bootstrap=300,
+        semilla=config.RANDOM_SEED,
+    )
+
+    assert res["n_blocks"] == 20
+    assert res["observed_diff"] < 0.0
+    assert res["ci95_upper"] < 0.0
+    assert 0.0 < res["p_value"] < 0.05
+    assert res["significant_ci95"] is True
+
+
+def test_bootstrap_bloques_f1_sin_diferencia_no_es_significativo():
+    """
+    Caso límite: Si las predicciones de v2 y v3 son idénticas en todos los bloques,
+    la diferencia de F1-Score debe ser 0.0 y el bootstrap no debe marcar significancia.
+    """
+    bloques = np.repeat(np.arange(1, 16), 20)
+    y_real = np.tile([0, 0, 0, 1, 1], 60)
+    pred = np.tile([0, 0, 1, 1, 0], 60)
+
+    res = ab_testing.bootstrap_bloques_f1(
+        y_real=y_real,
+        pred_v2=pred,
+        pred_v3=pred.copy(),
+        bloques=bloques,
+        unidad_bloque="estaciones",
+        n_bootstrap=300,
+        semilla=config.RANDOM_SEED,
+    )
+
+    assert res["n_blocks"] == 15
+    assert res["observed_diff"] == 0.0
+    assert res["ci95_lower"] == 0.0 and res["ci95_upper"] == 0.0
+    assert res["significant_ci95"] is False
+
+
 def test_reportes_drift_y_ab_testing_generados_correctamente():
     """
     Verifica que los resúmenes JSON y gráficas PNG de Evidently y del A/B Testing
-    contengan las métricas completas para P1, P2 y P3.
+    contengan las métricas y bloques de bootstrap (días y estaciones) para P1, P2 y P3.
     """
     assert config.DRIFT_SUMMARY_JSON.exists()
     assert config.AB_TEST_SUMMARY_JSON.exists()
@@ -111,9 +163,32 @@ def test_reportes_drift_y_ab_testing_generados_correctamente():
     with open(config.AB_TEST_SUMMARY_JSON, "r", encoding="utf-8") as f_ab:
         datos_ab = json.load(f_ab)
 
-    for pregunta in ("p1", "p2", "p3"):
+    assert datos_ab["unique_days_evaluated"] == 31
+    assert datos_ab["active_stations_evaluated_p1_p2"] == 469
+    assert datos_ab["active_stations_evaluated_p3"] == 469
+    assert "Block Bootstrap" in datos_ab["statistical_method"]["name"]
+
+    bloques_esperados = {
+        "p1": ("mae_by_day", "mae_by_station"),
+        "p2": (
+            "f1_by_day",
+            "f1_by_station",
+            "brier_by_day",
+            "brier_by_station",
+            "pr_auc_by_day",
+            "pr_auc_by_station",
+        ),
+        "p3": ("centroid_distance_by_station", "silhouette_by_station"),
+    }
+
+    for pregunta, llaves_boot in bloques_esperados.items():
         assert pregunta in datos_ab["models"]
         info_m = datos_ab["models"][pregunta]
         assert "variant_A_v2" in info_m and "variant_B_v3" in info_m
         assert info_m["selected_winner"] in ("v2", "v3")
-        assert isinstance(info_m["paired_ttest_p_value"], float)
+        assert "block_bootstrap" in info_m
+        for llave in llaves_boot:
+            d_boot = info_m["block_bootstrap"][llave]
+            assert d_boot["ci95_lower"] <= d_boot["observed_diff"] <= d_boot["ci95_upper"]
+            assert 0.0 < d_boot["p_value"] <= 1.0
+            assert isinstance(d_boot["significant_ci95"], bool)

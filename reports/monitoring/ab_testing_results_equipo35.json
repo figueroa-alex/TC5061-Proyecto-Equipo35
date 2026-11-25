@@ -2,7 +2,18 @@
     "evaluation_period": "Octubre 2026 (2026-10-01 a 2026-10-31)",
     "evaluation_data_version": "3542d1d567e1",
     "hourly_observations_evaluated": 208912,
+    "unique_days_evaluated": 31,
+    "active_stations_evaluated_p1_p2": 469,
     "active_stations_evaluated_p3": 469,
+    "statistical_method": {
+        "name": "Block Bootstrap Resampling (Days and Stations)",
+        "random_seed": 42,
+        "n_bootstrap_primary": 2000,
+        "n_bootstrap_pr_auc": 300,
+        "n_bootstrap_silhouette": 500,
+        "confidence_level": 0.95,
+        "justification": "Las observaciones estacion x hora presentan autocorrelacion temporal (rezagos lag_1, lag_2, lag_24 y media movil 3h) y dependencia espacial compartida por red y estacion. El remuestreo bootstrap por bloques (31 dias y 469 estaciones) evita inflar artificialmente el tamano muestral efectivo y estima intervalos de confianza al 95% realistas directamente sobre las metricas operativas de negocio."
+    },
     "models": {
         "p1": {
             "model_name": "mibici-equipo35-p1-demanda",
@@ -23,9 +34,37 @@
                 "mean_bias_error": -0.281,
                 "pred_mean": 2.5414
             },
-            "paired_ttest_t_stat": 19.1902,
-            "paired_ttest_p_value": 5.2639558921800273e-82,
-            "statistically_significant_p_lt_0_05": true,
+            "block_bootstrap": {
+                "mae_by_day": {
+                    "metric": "mae",
+                    "direction": "v3 - v2 (negativo favorece a v3)",
+                    "block_unit": "dias",
+                    "n_blocks": 31,
+                    "n_bootstrap": 2000,
+                    "observed_diff": -0.014425,
+                    "bootstrap_mean_diff": -0.014371,
+                    "bootstrap_std_error": 0.001455,
+                    "ci95_lower": -0.017461,
+                    "ci95_upper": -0.011568,
+                    "p_value": 0.001,
+                    "significant_ci95": true
+                },
+                "mae_by_station": {
+                    "metric": "mae",
+                    "direction": "v3 - v2 (negativo favorece a v3)",
+                    "block_unit": "estaciones",
+                    "n_blocks": 469,
+                    "n_bootstrap": 2000,
+                    "observed_diff": -0.014425,
+                    "bootstrap_mean_diff": -0.014404,
+                    "bootstrap_std_error": 0.003193,
+                    "ci95_lower": -0.021223,
+                    "ci95_upper": -0.008885,
+                    "p_value": 0.001,
+                    "significant_ci95": true
+                }
+            },
+            "statistically_significant_ci95": true,
             "selected_winner": "v3"
         },
         "p2": {
@@ -47,9 +86,93 @@
                 "pr_auc": 0.2512,
                 "brier_score": 0.1649
             },
-            "paired_ttest_t_stat": -111.1332,
-            "paired_ttest_p_value": 0.0,
-            "statistically_significant_p_lt_0_05": true,
+            "block_bootstrap": {
+                "f1_by_day": {
+                    "metric": "f1_score",
+                    "direction": "v3 - v2 (positivo favorece a v3)",
+                    "block_unit": "dias",
+                    "n_blocks": 31,
+                    "n_bootstrap": 2000,
+                    "observed_diff": -0.00403,
+                    "bootstrap_mean_diff": -0.004035,
+                    "bootstrap_std_error": 0.000463,
+                    "ci95_lower": -0.004928,
+                    "ci95_upper": -0.003101,
+                    "p_value": 0.001,
+                    "significant_ci95": true
+                },
+                "f1_by_station": {
+                    "metric": "f1_score",
+                    "direction": "v3 - v2 (positivo favorece a v3)",
+                    "block_unit": "estaciones",
+                    "n_blocks": 469,
+                    "n_bootstrap": 2000,
+                    "observed_diff": -0.00403,
+                    "bootstrap_mean_diff": -0.004022,
+                    "bootstrap_std_error": 0.000886,
+                    "ci95_lower": -0.00582,
+                    "ci95_upper": -0.002326,
+                    "p_value": 0.001,
+                    "significant_ci95": true
+                },
+                "brier_by_day": {
+                    "metric": "brier_score",
+                    "direction": "v3 - v2 (negativo favorece a v3)",
+                    "block_unit": "dias",
+                    "n_blocks": 31,
+                    "n_bootstrap": 2000,
+                    "observed_diff": 0.008595,
+                    "bootstrap_mean_diff": 0.008595,
+                    "bootstrap_std_error": 0.000134,
+                    "ci95_lower": 0.00833,
+                    "ci95_upper": 0.008849,
+                    "p_value": 0.001,
+                    "significant_ci95": true
+                },
+                "brier_by_station": {
+                    "metric": "brier_score",
+                    "direction": "v3 - v2 (negativo favorece a v3)",
+                    "block_unit": "estaciones",
+                    "n_blocks": 469,
+                    "n_bootstrap": 2000,
+                    "observed_diff": 0.008595,
+                    "bootstrap_mean_diff": 0.008639,
+                    "bootstrap_std_error": 0.000749,
+                    "ci95_lower": 0.007206,
+                    "ci95_upper": 0.010122,
+                    "p_value": 0.001,
+                    "significant_ci95": true
+                },
+                "pr_auc_by_day": {
+                    "metric": "pr_auc",
+                    "direction": "v3 - v2 (positivo favorece a v3)",
+                    "block_unit": "dias",
+                    "n_blocks": 31,
+                    "n_bootstrap": 300,
+                    "observed_diff": 0.0064,
+                    "bootstrap_mean_diff": 0.006479,
+                    "bootstrap_std_error": 0.000872,
+                    "ci95_lower": 0.00482,
+                    "ci95_upper": 0.008221,
+                    "p_value": 0.006645,
+                    "significant_ci95": true
+                },
+                "pr_auc_by_station": {
+                    "metric": "pr_auc",
+                    "direction": "v3 - v2 (positivo favorece a v3)",
+                    "block_unit": "estaciones",
+                    "n_blocks": 469,
+                    "n_bootstrap": 300,
+                    "observed_diff": 0.0064,
+                    "bootstrap_mean_diff": 0.006453,
+                    "bootstrap_std_error": 0.002205,
+                    "ci95_lower": 0.00189,
+                    "ci95_upper": 0.010277,
+                    "p_value": 0.019934,
+                    "significant_ci95": true
+                }
+            },
+            "statistically_significant_f1_ci95": true,
             "selected_winner": "v2"
         },
         "p3": {
@@ -78,9 +201,37 @@
                     "3": 91
                 }
             },
-            "paired_ttest_t_stat": 2.4453,
-            "paired_ttest_p_value": 0.014841422965950438,
-            "statistically_significant_p_lt_0_05": true,
+            "block_bootstrap": {
+                "centroid_distance_by_station": {
+                    "metric": "mean_centroid_distance",
+                    "direction": "v3 - v2 (negativo favorece a v3)",
+                    "block_unit": "estaciones",
+                    "n_blocks": 469,
+                    "n_bootstrap": 2000,
+                    "observed_diff": -0.054338,
+                    "bootstrap_mean_diff": -0.054342,
+                    "bootstrap_std_error": 0.022778,
+                    "ci95_lower": -0.100907,
+                    "ci95_upper": -0.009697,
+                    "p_value": 0.017991,
+                    "significant_ci95": true
+                },
+                "silhouette_by_station": {
+                    "metric": "silhouette_score",
+                    "direction": "v3 - v2 (positivo favorece a v3)",
+                    "block_unit": "estaciones",
+                    "n_blocks": 469,
+                    "n_bootstrap": 500,
+                    "observed_diff": 0.00679,
+                    "bootstrap_mean_diff": 0.00628,
+                    "bootstrap_std_error": 0.004447,
+                    "ci95_lower": -0.002798,
+                    "ci95_upper": 0.014913,
+                    "p_value": 0.199601,
+                    "significant_ci95": false
+                }
+            },
+            "statistically_significant_ci95": true,
             "selected_winner": "v3"
         }
     },
