@@ -56,7 +56,7 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 ├── python_env.yaml          <- Entorno del MLflow Project con versiones fijas de Python y dependencias
 ├── pyproject.toml           <- Metadatos del paquete instalable mibici
 ├── requirements.txt         <- Dependencias fijas con versiones exactas (==)
-├── README.md                <- Documentación de reproducción, servidor MLflow y Model Registry
+├── README.md                <- Documentación integral del ciclo de vida MLOps del proyecto MiBici
 ├── data/
 │   ├── external/
 │   ├── interim/             <- Caché local de tablas de features (ignorado en Git)
@@ -64,6 +64,8 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 │   │   ├── data_version.json         <- Manifiesto SHA-256 del bloque histórico base (128979137b46)
 │   │   └── data_version_2026_10.json <- Manifiesto SHA-256 del lote de producción Oct 2026 (3542d1d567e1)
 │   └── raw/                 <- Archivos CSV mensuales y snapshots versionados de nomenclatura (2026_09 y 2026_10)
+├── docs/
+│   └── MODEL_CARD.md        <- Model Card completo (Mitchell et al., 2019) para P1, P2 y P3
 ├── load_tests/
 │   ├── locustfile.py        <- Escenarios de pruebas de carga con Locust (síncrono P1/P2/P3 + asíncrono RQ)
 │   ├── monitorear_recursos.py <- Monitor automático de CPU/RAM con podman/docker stats
@@ -80,7 +82,7 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 │   │   ├── train.py         <- Punto de entrada 'train': baselines, nested runs, candidatos y artefactos
 │   │   └── predict.py       <- Punto de entrada 'register': registro en Model Registry (@champion) e inferencia
 │   └── monitoring/          <- Observabilidad, Data Drift con Evidently (drift_report.py) y A/B Testing (ab_testing.py)
-├── models/                  <- Carpeta para modelos locales (ignorada en Git)
+├── models/                  <- Carpeta para modelos locales y registry_bundle/ exportado del Model Registry
 ├── notebooks/
 │   └── 1.0-equipo35-exploracion-mibici.ipynb
 ├── references/
@@ -91,7 +93,7 @@ El proyecto fue generado con `cookiecutter-data-science` (`ccds`) activando `inc
 │   ├── figures/             <- Gráficas de desempeño (P1, P2, P3), evidencias, Evidently Drift, A/B Testing, Locust y FinOps
 │   ├── monitoring/          <- Reportes interactivos HTML de Evidently y resúmenes JSON de Drift y A/B Testing
 │   └── operations/          <- Reportes HTML/CSV de Locust, métricas de podman stats y resumen JSON FinOps
-└── tests/                   <- Suite automatizada de 45 pruebas (PyTest, Reproducibilidad, DeepChecks, Seguridad, API, Evidently y Microservicios)
+└── tests/                   <- Suite automatizada de 47 pruebas (PyTest, Reproducibilidad, DeepChecks, Seguridad, API, Evidently, Bootstrap y Microservicios)
 ```
 ---
 
@@ -249,6 +251,7 @@ El equipo adoptó **GitHub Flow** con las siguientes reglas:
    * Entrega 3: `feat/seguridad-y-configuracion`, `test/unitarias-y-reproducibilidad`, `test/validacion-datos-deepchecks`, `feat/recuperacion-modelo-registry`, `feat/api-fastapi-validacion-pydantic`, `feat/contenedor-podman-containerfile`.
    * Entrega 4 (Monitoreo y A/B Testing): `feat/ingesta-octubre2026-y-config-monitoreo`, `feat/monitoreo-drift-evidently`, `feat/ab-testing-model-registry-v3`, `docs/reporte-drift-abtest-y-pruebas`.
    * Entrega 5 / Entregable 7 (Microservicios, CI/CD y FinOps): `feat/compose-microservicios-redis-rq`, `feat/pruebas-carga-locust-y-stats`, `feat/analisis-finops-y-graficas`, `feat/pipeline-cicd-pruebas-y-readme`.
+   * Entrega Final (Actividad 11 — Gobernanza, Bootstrap A/B y Consolidación): `feat/ab-testing-bootstrap-bloques`, `feat/sync-registry-bundle-v3`, `docs/model-card-gobernanza`, `docs/readme-final-entrega11`.
 3. **Convención de mensajes de commit:** Basada en *Conventional Commits* 1.0.0 (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`) seguidos de una descripción concisa en español.
 4. **Fusión con *merge commit*:** Los PR se fusionan con *merge commit* (sin *squash*) para conservar los *commits* que quedan registrados en la etiqueta `git_commit` de cada corrida y versión del Model Registry.
 5. **Exclusión de artefactos pesados:** El archivo `.gitignore` bloquea cualquier archivo `.csv`, `.parquet`, modelos serializados, `mlruns/`, `mlartifacts/` y `mlflow.db` para mantener el repositorio ligero y auditable.
@@ -268,7 +271,7 @@ El equipo adoptó **GitHub Flow** con las siguientes reglas:
 
 ## 9. Pruebas Automatizadas (PyTest + DeepChecks) y Chequeos de Seguridad
 
-En esta entrega se integró al repositorio una suite automatizada de **45 pruebas** en la carpeta dedicada `tests/` (29 pruebas de unidad, reproducibilidad, validación de datos con DeepChecks y seguridad del repositorio, 6 pruebas de los endpoints síncronos de FastAPI, 4 pruebas de monitoreo de *drift* con Evidently y *A/B testing*, y 6 pruebas de microservicios, cola asíncrona Redis/RQ, Compose y CI/CD) junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
+En esta entrega se integró al repositorio una suite automatizada de **47 pruebas** en la carpeta dedicada `tests/` (29 pruebas de unidad, reproducibilidad, validación de datos con DeepChecks y seguridad del repositorio, 6 pruebas de los endpoints síncronos de FastAPI, 6 pruebas de monitoreo de *drift* con Evidently y *A/B testing* con *bootstrap* por bloques, y 6 pruebas de microservicios, cola asíncrona Redis/RQ, Compose y CI/CD) junto con controles de seguridad de código, variables de entorno y auditoría de dependencias para asegurar la calidad, reproducibilidad y gobernanza técnica del proyecto MiBici.
 
 ### 9.1 Estructura de la Carpeta `tests/`
 
@@ -281,7 +284,7 @@ tests/
 ├── test_data_deepchecks.py   <- 5 pruebas de validación de integridad, calidad y drift con DeepChecks para viajes crudos, P1, P2 y P3
 ├── test_security_repo.py     <- 3 pruebas automatizadas de seguridad (.gitignore, .env.example y ausencia de secretos)
 ├── test_api_fastapi.py       <- 6 pruebas de integración y validación Pydantic del servicio API REST (FastAPI)
-├── test_monitoring_drift_ab.py <- 4 pruebas de monitoreo de Data Drift con Evidently, lote Octubre 2026 y A/B Testing
+├── test_monitoring_drift_ab.py <- 6 pruebas de monitoreo de Data Drift con Evidently, lote Octubre 2026 y A/B Testing con bootstrap por bloques
 └── test_microservices_async.py <- 6 pruebas de tareas RQ, endpoints asíncronos (202/200/404/503), Compose y workflow CI/CD
 ```
 
@@ -300,7 +303,7 @@ tests/
 | `features.generar_features_p3_clustering` | Construcción del perfil operativo y geográfico por estación sobre el conjunto de entrenamiento. | Estaciones sin llegadas registradas (reemplazo seguro de denominador `0` por `1` en `ratio_salidas_llegadas`) y validación de proporciones en el rango `[0.0, 1.0]`. |
 | `plots.*` y `train.leer_argumentos` / `construir_estimador` | Creación de archivos `.png` no vacíos para P1 y P2; reemplazo automático de `"from_config"` por las constantes de `mibici/config.py`. | Rechazo con `ValueError` ante preguntas o nombres de modelos no reconocidos (`p99`, `modelo_inexistente`). |
 | `train.registrar_artefactos_y_modelo` | Registro completo en un servidor SQLite de MLflow del dataset de entrenamiento (`mlflow.log_input` con `digest`), manifiesto en `data/data_version.json`, configuración en `config/config.py` y `config/run_config.json`, gráficas en `plots/` y modelo serializado con `signature`, `input_example` y etiqueta `logged_model_uri`. | Verificación de recuperación e inferencia del modelo registrado desde su URI `models:/m-...` comprobando que las predicciones coincidan exactamente con las del modelo en memoria. |
-| **Monitoreo de *Drift* con Evidently y *A/B Testing*** (`test_monitoring_drift_ab.py`) | Ejecución de `Report([DataDriftPreset(), DataSummaryPreset()])` verificando detección de *drift* en variables desplazadas, generación de reporte HTML, validación del manifiesto SHA-256 `data_version_2026_10.json` y estructura de resultados A/B (`v2` vs. `v3`) para P1, P2 y P3. | Verificación de caso límite con distribuciones de referencia y actual idénticas (`0` columnas con *drift* y `0` celdas faltantes) y manejo de rutas fuera de `PROJ_ROOT` (`tmp_path`). |
+| **Monitoreo de *Drift* con Evidently y *A/B Testing*** (`test_monitoring_drift_ab.py`) | Ejecución de `Report([DataDriftPreset(), DataSummaryPreset()])` verificando detección de *drift* en variables desplazadas, generación de reporte HTML, validación del manifiesto SHA-256 `data_version_2026_10.json`, pruebas unitarias del remuestreo *bootstrap* por bloques (`bootstrap_bloques_media_error` y `bootstrap_bloques_f1`) y estructura de resultados A/B (`v2` vs. `v3`) para P1, P2 y P3. | Verificación de caso límite con distribuciones de referencia y actual idénticas (`0` columnas con *drift* y `0` celdas faltantes), predicciones idénticas en *bootstrap* F1 (diferencia `0.0` sin significancia falsa) y manejo de rutas fuera de `PROJ_ROOT` (`tmp_path`). |
 | **Microservicios, Cola RQ, Compose y CI/CD** (`test_microservices_async.py`) | Ejecución directa de `tasks.ejecutar_prediccion_p1_asincrona`, flujo encolado `POST /predict/async/p1-demanda` (HTTP 202) y consulta `GET /jobs/{job_id}` (HTTP 200), validación de los 4 servicios con red/volúmenes/*healthchecks* en `docker-compose.yml` y estructura de los 4 *jobs* de `.github/workflows/ci-cd-mibici.yml`. | Manejo controlado de errores ante trabajo inexistente (HTTP 404) y caída o indisponibilidad del broker Redis (HTTP 503). |
 | **Reproducibilidad del entrenamiento** (`test_reproducibility.py`) | Dos ejecuciones independientes con la misma semilla (`RANDOM_SEED = 42`) para **P1** (`HistGradientBoostingRegressor`, `RandomForestRegressor`, `Ridge`), **P2** (`HistGradientBoostingClassifier`, `LogisticRegression`, `RandomForestClassifier`) y **P3** (`KMeans`). | Verificación estricta con `np.testing.assert_allclose` (`rtol=1e-12`, `atol=1e-12`) y `assert_array_equal` de que dos corridas con la misma semilla producen **exactamente las mismas predicciones, probabilidades, asignaciones de cluster y métricas** (`MAE`, `R2`, `F1-Score`, `ROC-AUC` y `Silhouette Score`). |
 
@@ -362,7 +365,7 @@ Desde la raíz del repositorio con el entorno virtual activado (`source .venv/bi
   ```
 
 * **Modo 2 — Con dataset sintético de respaldo (en un clon limpio sin haber ejecutado aún la ingesta):**
-  Si acabas de clonar el repositorio y deseas correr las 45 pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
+  Si acabas de clonar el repositorio y deseas correr las 47 pruebas de inmediato sin descargar los 48 archivos CSV ni generar el Parquet, ejecuta:
   ```bash
   MIBICI_TEST_DATA_MODE=synthetic pytest
   # O mediante el comando del Makefile:
@@ -386,11 +389,11 @@ make security
 
 ### 9.6 Evidencia de Ejecución Exitosa de Pruebas y Chequeos de Seguridad
 
-**1. Ejecución exitosa de las 45 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks en P1, P2 y P3 + Seguridad + API) sobre datos reales (`45 passed` sin *warnings*):**
+**1. Ejecución exitosa de las 47 pruebas automatizadas (PyTest + Reproducibilidad + DeepChecks en P1, P2 y P3 + Seguridad + API + Evidently/Bootstrap + Microservicios) sobre datos reales (`47 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo real](reports/figures/evidencia_pytest_real.png)
 
-**2. Ejecución exitosa de las 45 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `45 passed` sin *warnings*):**
+**2. Ejecución exitosa de las 47 pruebas automatizadas usando el dataset sintético de respaldo (`MIBICI_TEST_DATA_MODE=synthetic pytest`, `47 passed` sin *warnings*):**
 
 ![Evidencia PyTest y DeepChecks en modo sintético](reports/figures/evidencia_pytest_synthetic.png)
 
@@ -421,12 +424,12 @@ En esta entrega se empaquetaron los tres modelos campeones del proyecto MiBici (
 │       └── main.py               <- Aplicación FastAPI con endpoints /health, /metadata y 3 rutas de predicción
 ├── models/
 │   └── registry_bundle/          <- Artefactos descargados del Model Registry para garantizar portabilidad del contenedor
-│       ├── p1_demanda/           <- Modelo registrado mibici-equipo35-p1-demanda (v2, @champion)
-│       ├── p2_riesgo/            <- Modelo registrado mibici-equipo35-p2-riesgo (v2, @champion)
-│       ├── p3_grupos/            <- Modelo registrado mibici-equipo35-p3-grupos (v2, @champion)
+│       ├── p1_demanda/           <- Modelo registrado mibici-equipo35-p1-demanda (@champion)
+│       ├── p2_riesgo/            <- Modelo registrado mibici-equipo35-p2-riesgo (@champion)
+│       ├── p3_grupos/            <- Modelo registrado mibici-equipo35-p3-grupos (@champion)
 │       └── registry_manifest.json<- Manifiesto con versión, alias, run_id, git_commit y data_version
 └── tests/
-    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 45 tests)
+    └── test_api_fastapi.py       <- 6 pruebas automatizadas de endpoints HTTP y validaciones Pydantic (total: 47 tests)
 ```
 
 ### 10.2 Opción Elegida para Recuperar los Modelos desde el Model Registry
@@ -434,7 +437,7 @@ En esta entrega se empaquetaron los tres modelos campeones del proyecto MiBici (
 Para asegurar reproducibilidad en cualquier entorno, el módulo `mibici/api/model_loader.py` implementa una **estrategia híbrida de recuperación desde el Model Registry de MLflow** (controlada por la variable de entorno `MIBICI_MODEL_LOAD_MODE=hybrid`):
 
 1. **Conexión en vivo al Model Registry mediante `MLFLOW_TRACKING_URI`:** Al iniciar el servicio, la API consulta el servidor configurado en `MLFLOW_TRACKING_URI` (por defecto `http://host.containers.internal:5000` dentro del contenedor) e intenta recuperar cada modelo utilizando su nombre oficial y el alias de producción `@champion` (`models:/mibici-equipo35-p1-demanda@champion`, `models:/mibici-equipo35-p2-riesgo@champion` y `models:/mibici-equipo35-p3-grupos@champion`) o su versión explícita (`v2`).
-2. **Respaldo autónomo empaquetado desde el Model Registry (`models/registry_bundle/`):** Mediante el comando `python -m mibici.api.model_loader` (o `make export-models`), los artefactos oficiales y metadatos de linaje de las versiones `@champion` (`v2`) se descargan desde el Model Registry hacia `models/registry_bundle/` y se copian dentro de la imagen OCI durante `podman build`. Si el contenedor se ejecuta en una máquina o entorno de CI/CD donde el servidor externo de MLflow no está encendido, la API carga automáticamente el modelo empaquetado sin interrumpir el servicio.
+2. **Respaldo autónomo empaquetado desde el Model Registry (`models/registry_bundle/`):** Mediante el comando `python -m mibici.api.model_loader` (o `make export-models`), los artefactos oficiales y metadatos de linaje de las versiones `@champion` se descargan desde el Model Registry hacia `models/registry_bundle/` y se copian dentro de la imagen OCI durante `podman build`. Si el contenedor se ejecuta en una máquina o entorno de CI/CD donde el servidor externo de MLflow no está encendido, la API carga automáticamente el modelo empaquetado sin interrumpir el servicio.
 
 ### 10.3 Justificación de la Estrategia de Despliegue Elegida
 
@@ -449,7 +452,7 @@ Con base en los criterios de arquitectura de sistemas de *Machine Learning* (Huy
 El módulo `mibici/api/schemas.py` valida todas las peticiones antes de invocar los modelos:
 * **Restricción de rangos operativos:** Verifica tipos numéricos y dominios válidos del AMG (`hora` $\in [0, 23]$, `dia_semana` $\in [0, 6]$, `mes` $\in [1, 12]$, `dpcapacity` $> 0$, `latitude` $\in [20.0, 21.5]$, `longitude` $\in [-104.0, -102.5]$ y proporciones $\in [0.0, 1.0]$).
 * **Protección de privacidad (`extra="forbid"`):** Cualquier petición que incluya campos no reconocidos o datos personales de usuarios (`Usuario_Id`, `Genero`, `Año_de_nacimiento`) es rechazada automáticamente con código HTTP `422 Unprocessable Entity`.
-* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), integrándose a la suite del repositorio (actualmente **45 pruebas automatizadas**, `45 passed`) y manteniendo **0 alertas** en `bandit` y `pip-audit`.
+* **Pruebas automatizadas (`tests/test_api_fastapi.py`):** Se añadieron **6 pruebas** con `TestClient` (actualizando `requirements.txt` con `httpx2==2.16.0` y `httpcore2==2.16.0`, y `pyproject.toml` con el filtro de advertencias de deprecación de `codecs.open`), integrándose a la suite del repositorio (actualmente **47 pruebas automatizadas**, `47 passed`) y manteniendo **0 alertas** en `bandit` y `pip-audit`.
 
 ### 10.5 Instrucciones para Construir la Imagen, Levantar el Contenedor y Consumir la API con Podman
 
@@ -483,7 +486,7 @@ Ejecuta el contenedor en segundo plano (`-d`), mapeando el puerto `8000` del hos
 podman run --rm -d \
   --name mibici-api \
   -p 8000:8000 \
-  -e MLFLOW_TRACKING_URI=http://host.containers.internal:5000 \
+  -e MLFLOW_TRACKING_URI="http://host.containers.internal:5000" \
   mibici-api-equipo35:1.0
 # O mediante el Makefile:
 make podman-run
@@ -650,20 +653,20 @@ En esta entrega se dotó al proyecto MiBici de una capa de **observabilidad, det
 │   └── monitoring/
 │       ├── __init__.py                             <- Inicializador del paquete de observabilidad y monitoreo
 │       ├── drift_report.py                         <- Reportes HTML/JSON/PNG de Data Drift y Data Quality con Evidently
-│       └── ab_testing.py                           <- Reentrenamiento (v3), registro en MLflow y evaluación A/B Testing
+│       └── ab_testing.py                           <- Reentrenamiento (v3), registro en MLflow y evaluación A/B Testing con bootstrap por bloques
 ├── reports/
 │   ├── figures/
 │   │   ├── drift_evidently_p1_p2_variables.png     <- Magnitud de drift por variable en P1 y P2 (Evidently)
 │   │   ├── drift_evidently_distribuciones_clave.png<- Cambio de distribución en variables operativas críticas
 │   │   ├── drift_evidently_p3_perfiles.png         <- Magnitud de drift en perfiles de estaciones P3 (Evidently)
-│   │   └── ab_testing_comparacion_modelos.png      <- Comparación de desempeño Variante A (v2) vs. Variante B (v3)
+│   │   └── ab_testing_comparacion_modelos.png      <- Comparación Variante A (v2) vs. Variante B (v3) e IC 95% por bootstrap de bloques
 │   └── monitoring/
 │       ├── evidently_drift_p1_p2.html              <- Reporte interactivo HTML de Evidently para P1 y P2
 │       ├── evidently_drift_p3.html                 <- Reporte interactivo HTML de Evidently para P3
 │       ├── drift_summary_equipo35.json             <- Resumen cuantitativo de Data Drift y Data Quality
-│       └── ab_testing_results_equipo35.json        <- Métricas y pruebas estadísticas pareadas del A/B Testing
+│       └── ab_testing_results_equipo35.json        <- Métricas e intervalos de confianza al 95% por bootstrap de bloques (días y estaciones)
 └── tests/
-    └── test_monitoring_drift_ab.py                 <- 4 pruebas automatizadas de Evidently, lote 2026-10 y A/B Testing (total: 45 tests)
+    └── test_monitoring_drift_ab.py                 <- 6 pruebas automatizadas de Evidently, lote 2026-10 y bootstrap por bloques (total: 47 tests)
 ```
 
 ### 11.2 Definición y Justificación de los Conjuntos de Datos (Referencia vs. Actual)
@@ -705,23 +708,27 @@ Utilizando la API vigente de `evidently==0.7.23` (`Report([DataDriftPreset(), Da
 
 ![Resumen de Data Drift en perfiles de estaciones P3 con Evidently](reports/figures/drift_evidently_p3_perfiles.png)
 
-### 11.4 Entrenamiento de la Versión Alternativa (`v3`) y Resultados del A/B Testing
+### 11.4 Entrenamiento de la Versión Alternativa (`v3`) y Resultados del A/B Testing (Bootstrap por Bloques)
 
-Se entrenó una segunda versión alternativa (**Variante B: `v3`**) para cada modelo incorporando el histórico completo previo al mes de prueba (**Octubre 2022 – Septiembre 2026**, 48 meses, ponderando las observaciones de 2026) y actualizando las capacidades con `nomenclatura_2026_10.csv` (`max_iter=300, max_depth=12, learning_rate=0.06` en P1 y P2; `KMeans K=4, n_init=20` sobre las 469 estaciones activas de 2026 en P3). Las tres versiones se registraron como **`v3`** en el Model Registry de MLflow y se compararon contra la **Variante A (`v2`)** sobre el mismo conjunto de evaluación de **Octubre 2026 (`208,912` observaciones horarias y `469` estaciones)**:
+Se entrenó una segunda versión alternativa (**Variante B: `v3`**) para cada modelo incorporando el histórico completo previo al mes de prueba (**Octubre 2022 – Septiembre 2026**, 48 meses, ponderando las observaciones de 2026) y actualizando las capacidades con `nomenclatura_2026_10.csv` (`max_iter=300, max_depth=12, learning_rate=0.06` en P1 y P2; `KMeans K=4, n_init=20` sobre las 469 estaciones activas de 2026 en P3). Las tres versiones se registraron como **`v3`** en el Model Registry de MLflow y se compararon contra la **Variante A (`v2`)** sobre el mismo conjunto de evaluación de **Octubre 2026 (`208,912` observaciones horarias, `31` días y `469` estaciones)**.
 
-| Modelo / Tarea | Métrica Evaluada (Oct 2026) | Variante A (`v2` — Train Dic 2025) | Variante B (`v3` — Reentrenada Sep 2026) | Prueba $t$ Pareada ($t$ / $p\text{-valor}$) | Decisión y Alias en Registry |
-| :--- | :--- | :---: | :---: | :---: | :--- |
-| **P1 (`mibici-equipo35-p1-demanda`)** | `MAE` Global / Hora Pico<br>`RMSE` / $R^2$<br>Sesgo Medio (*Bias*) | `1.3572` / `1.5718`<br>`2.1109` / `0.6511`<br>`-0.3003` | **`1.3427`** / **`1.5537`**<br>**`2.0666`** / **`0.6656`**<br>**`-0.2810`** | $t = 19.1902$<br>$p = 5.26 \times 10^{-82}$ | **Gana `v3`** (`v3` $\to$ `@champion`, `v2` $\to$ `@challenger`) |
-| **P2 (`mibici-equipo35-p2-riesgo`)** | `F1-Score` / `Precision`<br>`Recall` / `ROC-AUC`<br>`PR-AUC` / `Brier Score` | **`0.1913`** / **`0.1086`**<br>`0.8055` / `0.8574`<br>`0.2448` / **`0.1563`** | `0.1873` / `0.1056`<br>**`0.8280`** / **`0.8622`**<br>**`0.2512`** / `0.1649` | $t = -111.1332$<br>$p < 10^{-100}$ | **Se mantiene `v2`** (`v2` $\to$ `@champion`, `v3` $\to$ `@challenger`) |
-| **P3 (`mibici-equipo35-p3-grupos`)** | `Silhouette Score`<br>`Davies-Bouldin Index`<br>Dist. Centroide / Share Mín. | `0.1533`<br>`1.8117`<br>`2.3685` / `10.45%` | **`0.1601`**<br>**`1.7937`**<br>**`2.3142`** / **`19.19%`** | $t = 2.4453$<br>$p = 0.0148$ | **Gana `v3`** (`v3` $\to$ `@champion`, `v2` $\to$ `@challenger`) |
+**Justificación metodológica del remuestreo *bootstrap* por bloques:** Tratar cada observación estación $\times$ hora como independiente infla artificialmente el tamaño muestral efectivo y exagera la significancia estadística debido a la autocorrelación temporal (rezagos `lag_1`, `lag_2`, `lag_24` y media móvil de 3 horas) y a los efectos compartidos por red y por estación. Para estimar de forma rigurosa la incertidumbre directamente sobre las métricas operativas (`MAE`, `F1-Score`, `Brier Score`, `PR-AUC`, distancia al centroide y `Silhouette Score`), se aplicó **remuestreo *bootstrap* por bloques** (`2,000` réplicas en métricas primarias, `300` en `PR-AUC` y `500` en `Silhouette`; semilla `42`) agrupando por **31 días** y por **469 estaciones**, con intervalos de confianza al 95% y $p$-valor bilateral con corrección de continuidad (Efron & Tibshirani, 1993):
 
-![Resultados del A/B Testing en Octubre 2026: Variante A (v2) vs Variante B (v3)](reports/figures/ab_testing_comparacion_modelos.png)
+| Modelo / Tarea | Métrica Evaluada (Oct 2026) | Variante A (`v2` — Dic 2025) | Variante B (`v3` — Sep 2026) | Diferencia (`v3 - v2`) | Bootstrap por Días (`31`) — IC 95% / $p$ | Bootstrap por Estaciones (`469`) — IC 95% / $p$ | Decisión y Alias en Registry |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **P1 (`mibici-equipo35-p1-demanda`)** | `MAE` Global<br>`MAE` Pico / `RMSE` / $R^2$<br>Sesgo Medio (*Bias*) | `1.3572`<br>`1.5718` / `2.1109` / `0.6511`<br>`-0.3003` | **`1.3427`**<br>**`1.5537`** / **`2.0666`** / **`0.6656`**<br>**`-0.2810`** | **`-0.0144`** | `[-0.0175, -0.0116]`<br>$p = 0.0010$ *(Sig.)* | `[-0.0212, -0.0089]`<br>$p = 0.0010$ *(Sig.)* | **Gana `v3`** (`v3` $\to$ `@champion`, `v2` $\to$ `@challenger`) |
+| **P2 (`mibici-equipo35-p2-riesgo`)** | `F1-Score` (umbral `0.50`)<br>`Brier Score` (calibración)<br>`PR-AUC`<br>`Precision` / `Recall` / `ROC-AUC` | **`0.1913`**<br>**`0.1563`**<br>`0.2448`<br>**`0.1086`** / `0.8055` / `0.8574` | `0.1873`<br>`0.1649`<br>**`0.2512`**<br>`0.1056` / **`0.8280`** / **`0.8622`** | `-0.0040`<br>`+0.0086`<br>`+0.0064` | `[-0.0049, -0.0031]`, $p = 0.0010$<br>`[+0.0083, +0.0088]`, $p = 0.0010$<br>`[+0.0048, +0.0082]`, $p = 0.0066$ | `[-0.0058, -0.0023]`, $p = 0.0010$<br>`[+0.0072, +0.0101]`, $p = 0.0010$<br>`[+0.0019, +0.0103]`, $p = 0.0199$ | **Se mantiene `v2`** (`v2` $\to$ `@champion`, `v3` $\to$ `@challenger`) |
+| **P3 (`mibici-equipo35-p3-grupos`)** | `Dist. Centroide`<br>`Silhouette Score`<br>`Davies-Bouldin` / `Share Mín.` | `2.3685`<br>`0.1533`<br>`1.8117` / `10.45%` | **`2.3142`**<br>`0.1601`<br>**`1.7937`** / **`19.19%`** | **`-0.0543`**<br>`+0.0068` | N/A (perfil por estación) | `[-0.1009, -0.0097]`, $p = 0.0180$ *(Sig.)*<br>`[-0.0028, +0.0149]`, $p = 0.1996$ *(NS)* | **Gana `v3`** (`v3` $\to$ `@champion`, `v2` $\to$ `@challenger`) |
+
+*(Hallazgo relevante del remuestreo por bloques: en **P1** el error estándar por estaciones es más del doble que por días, confirmando heterogeneidad espacial; en **P2** se evidencia estadísticamente que `v3` mejora el ordenamiento `PR-AUC`, pero empeora la calibración `Brier` y el `F1` al umbral `0.50`, respaldando proteger `v2` hasta calibrar el umbral; y en **P3** la reducción de distancia al centroide sí es significativa [$p = 0.0180$], mientras que el alza de `Silhouette` [$p = 0.1996$] cae dentro de la incertidumbre muestral, por lo que `v3` se promueve por su menor distancia al centroide y por eliminar el colapso de grupos).*
+
+![Resultados del A/B Testing en Octubre 2026: Variante A (v2) vs Variante B (v3) con Bootstrap por Bloques](reports/figures/ab_testing_comparacion_modelos.png)
 
 ### 11.5 Recomendación sobre Reentrenamiento Continuo (*Continuous Training*)
 
 Con base en la evidencia empírica de Evidently y del *A/B Testing*, se recomienda implementar una estrategia diferenciada de **Continuous Training (CT) gobernada por compuerta de validación A/B** (Huyen, 2022; Treveil et al., 2020):
 1. **Disparadores híbridos (*Triggers*):** Ejecutar el pipeline de monitoreo con Evidently al cierre de cada publicación mensual de MiBici y activar el reentrenamiento automático cuando: a) más del `35%` de las variables predictoras presenten *drift* significativo (`drift_share >= 0.35`), b) la demanda media horaria se desvíe más de $\pm 10\%$ respecto a la media predicha, o c) el catálogo de nomenclatura registre bajas de estaciones o cambios en `dpcapacity`.
-2. **Promoción selectiva por modelo (Compuerta `@champion` / `@challenger`):** En **P1** y **P3**, donde el *drift* de volumen (`+17.5%` horario y `+29.7%` diario) degradaba las versiones entrenadas en 2025, el reentrenamiento mensual con ponderación reciente mejoró significativamente todas las métricas, por lo que `v3` se promueve a `@champion`. En cambio, en **P2**, dado que la proporción de eventos críticos (`en_riesgo`) permaneció estable (`score = 0.0128`), `v2` conserva mejor calibración y mayor `F1-Score` al umbral operativo de `0.50`, demostrando por qué ningún modelo reentrenado debe desplegarse en producción sin superar primero una evaluación A/B pareada.
+2. **Promoción selectiva por modelo (Compuerta `@champion` / `@challenger`):** En **P1** y **P3**, donde el *drift* de volumen (`+17.5%` horario y `+29.7%` diario) degradaba las versiones entrenadas en 2025, el reentrenamiento mensual con ponderación reciente mejoró significativamente el error operativo y la compactación de grupos, por lo que `v3` se promueve a `@champion`. En cambio, en **P2**, dado que la proporción de eventos críticos (`en_riesgo`) permaneció estable (`score = 0.0128`), `v2` conserva mejor calibración y mayor `F1-Score` al umbral operativo de `0.50`, demostrando por qué ningún modelo reentrenado debe desplegarse en producción sin superar primero una evaluación A/B con remuestreo *bootstrap* por bloques (días y estaciones).
 
 ### 11.6 Instrucciones para Ejecutar el Monitoreo de Drift y el A/B Testing
 
@@ -818,7 +825,7 @@ podman-compose down
 
 El *workflow* **`CI/CD Microservicios MiBici (Equipo 35)`** se dispara automáticamente en cada `push` (ramas `main`, `feat/**`, `fix/**`, `docs/**`, `test/**`), en cada `pull_request` hacia `main` y de forma manual mediante `workflow_dispatch` desde la pestaña **Actions** de GitHub. Incluye cancelación de corridas redundantes (`concurrency`) y cuatro etapas encadenadas:
 
-1. **`pruebas-y-calidad` (Matriz CI en paralelo con caché de `pip`):** Corre dentro de la imagen oficial `python:3.14.3-slim` (garantizando paridad exacta con `Containerfile` y `pyproject.toml`) y divide las **45 pruebas** en dos *jobs* paralelos:
+1. **`pruebas-y-calidad` (Matriz CI en paralelo con caché de `pip`):** Corre dentro de la imagen oficial `python:3.14.3-slim` (garantizando paridad exacta con `Containerfile` y `pyproject.toml`) y divide las **47 pruebas** en dos *jobs* paralelos:
    * `unit-api-microservices`: `test_unit_mibici.py`, `test_reproducibility.py`, `test_api_fastapi.py` y `test_microservices_async.py`.
    * `data-monitoring-security`: `test_data_deepchecks.py` (en modo sintético reproducible), `test_monitoring_drift_ab.py`, `test_security_repo.py` y análisis estático con `bandit -r mibici/`.
 2. **`build-y-despliegue-compose` (CD + Validación E2E):** Construye la imagen OCI desde `Containerfile` con `docker/build-push-action@v6` y caché de capas de GitHub Actions (`type=gha`), valida `docker compose config --quiet`, levanta los **4 microservicios reales** (`docker compose up -d --no-build`), espera hasta que los 4 reporten estado `healthy` y ejecuta pruebas de humo E2E contra MLflow (`:5001/health`), API (`/health` con `redis_conectado=true`), predicciones síncronas (P1, P2, P3) y el ciclo asíncrono completo en Redis/RQ (`/predict/async/p1-demanda` $\to$ `/jobs/{job_id}` con `status=finished`).
@@ -920,7 +927,28 @@ Con base en el consumo real medido (`953.76 MB` de RAM pico y `37.74%` de CPU pi
 3. **Escalamiento de *workers* Uvicorn y modo *SimpleWorker* / *batching* en RQ:** Pasar de 1 a 2 *workers* en Uvicorn aprovecharía las 2 vCPU disponibles para reducir el P95 de P1 (`170 ms`) y P2 (`150 ms`), y usar inferencia por lotes (*micro-batching*) en el corte horario de las 360 estaciones reduciría la sobrecarga de *fork* observada en `mibici-rq-worker`.
 4. **Caché de predicciones en Redis y apagado programado en madrugada:** Aprovechar Redis (actualmente en `6.96 MB` de RAM) para cachear resultados de P1/P2 por `(estacion, hora)` con TTL de 5 minutos y programar ventanas de cómputo acordes al horario operativo de MiBici (`05:00` a `23:59`, ahorro del `66.2%` sin compromiso anual).
 
-## 13. Referencias Bibliográficas
+---
+
+## 13. Gobernanza Responsable, Model Card y Consolidación del Proyecto Final
+
+Para cerrar el ciclo de vida completo de MLOps con prácticas responsables de documentación y auditoría (Mitchell et al., 2019; Huyen, 2022), se integró el **Model Card oficial del sistema MiBici** en [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
+
+### 13.1 Contenido del Model Card (`docs/MODEL_CARD.md`)
+El documento cubre los 3 modelos en producción (**P1 `v3`**, **P2 `v2`** y **P3 `v3`**) a lo largo de 9 secciones: detalles y linaje completo en el Model Registry (`Run ID`, `data_version`, algoritmos y aliases `@champion`/`@challenger`), uso previsto y usos fuera de alcance, factores operativos y territoriales, métricas y protocolo de *bootstrap* por bloques, datos de entrenamiento/evaluación, análisis cuantitativo (desarrollo, producción, carga Locust y FinOps), consideraciones éticas (*Privacy by Design* y equidad territorial en el AMG), limitaciones conocidas y plan de mantenimiento (*Continuous Training* y *rollback*).
+
+### 13.2 Mapa de Integración de Extremo a Extremo (Proyecto Integrador MiBici)
+
+| Pilar de MLOps | Implementación en el Repositorio | Evidencia / Artefacto Verificable |
+| :--- | :--- | :--- |
+| **Estructura y Experimentación** | Cookiecutter Data Science + `mibici/features.py` (sin fuga temporal) + `MLproject` (`python_env.yaml`) + MLflow Tracking (`nested runs` y artefactos). | `MLproject`, `mibici/`, `data/processed/data_version.json` (`128979137b46`), `reports/figures/p1_*`, `p2_*`, `p3_*`. |
+| **Modelo y Model Registry** | Modelos `P1`, `P2` y `P3` registrados y versionados (`v1`, `v2`, `v3`) con linaje explícito y aliases `@champion` (`P1 v3`, `P2 v2`, `P3 v3`) / `@challenger`. | `mibici/modeling/predict.py`, `models/registry_bundle/registry_manifest.json`, `mlflow.db`. |
+| **Calidad, Seguridad y CI/CD** | Suite de **47 pruebas** (`pytest` real y sintético + `DeepChecks` + reproducibilidad), `bandit` (`0` alertas), `pip-audit` (`0` CVEs) y GitHub Actions (matriz CI + Compose E2E + `ghcr.io`). | `tests/`, `.github/workflows/ci-cd-mibici.yml`, `reports/figures/evidencia_seguridad.png`. |
+| **Despliegue y Operación** | API REST con FastAPI y Pydantic (`extra="forbid"`), `Containerfile` OCI no-root, orquestación de 4 microservicios (`docker-compose.yml`) y pruebas de carga con Locust (`0.00%` error, P95 `130 ms` en 50 usuarios). | `mibici/api/`, `docker-compose.yml`, `load_tests/`, `reports/operations/locust_report_*.html`. |
+| **Monitoreo, Gobernanza y FinOps** | Reportes de *drift* con Evidently (`v0.7.23`), A/B Testing con **bootstrap por bloques** (31 días y 469 estaciones), análisis FinOps (`-69.9%` costo mensual a `$9.63 USD/mes`) y Model Card. | `reports/monitoring/evidently_drift_*.html`, `ab_testing_results_equipo35.json`, `reports/operations/finops_summary_equipo35.json`, [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md). |
+
+---
+
+## 14. Referencias Bibliográficas
 
 * Acuerdo DIELAG ACU 065/2022. (2022, 13 de octubre). Acuerdo del Ciudadano Gobernador Constitucional del Estado Libre y Soberano de Jalisco, mediante el cual se abroga el diverso acuerdo DIELAG ACU 016/2022. *Periódico Oficial "El Estado de Jalisco"*, Tomo CDV(28, Sección IV), 3–7.
 * Amazon Web Services. (2026). *Amazon EC2 On-Demand and Reserved Instance Pricing (US East - N. Virginia)*. [https://aws.amazon.com/ec2/pricing/](https://aws.amazon.com/ec2/pricing/)
@@ -930,6 +958,7 @@ Con base en el consumo real medido (`953.76 MB` de RAM pico y `37.74%` de CPU pi
 * Deepchecks. (2024). *Deepchecks documentation: Continuous validation for machine learning*. [https://docs.deepchecks.com/stable/getting-started/welcome.html](https://docs.deepchecks.com/stable/getting-started/welcome.html)
 * Docker Inc. (2026). *Docker Compose and docker container stats documentation*. [https://docs.docker.com/compose/](https://docs.docker.com/compose/)
 * DrivenData. (2024). *Cookiecutter Data Science* (Versión 2) [Documentación]. [https://cookiecutter-data-science.drivendata.org/](https://cookiecutter-data-science.drivendata.org/)
+* Efron, B., & Tibshirani, R. J. (1993). *An introduction to the bootstrap*. Chapman & Hall/CRC.
 * Encode. (2024). *Uvicorn: An ASGI web server implementation for Python*. [https://www.uvicorn.org/](https://www.uvicorn.org/)
 * Evidently AI. (2023, 28 de septiembre). *Tutorial de Evidently* [Serie de videos]. YouTube. [https://www.youtube.com/@EvidentlyAI](https://www.youtube.com/@EvidentlyAI)
 * Evidently AI. (2026). *Evidently documentation: Data and ML checks* (Versión 0.7.23). [https://docs.evidentlyai.com/introduction](https://docs.evidentlyai.com/introduction)
@@ -943,6 +972,7 @@ Con base en el consumo real medido (`953.76 MB` de RAM pico y `37.74%` de CPU pi
 * Krekel, H., Oliveira, B., Pfannschmidt, R., Bruynooghe, F., Laugher, B., & Bruhin, F. (2024). *pytest: Helps you write better programs*. [https://docs.pytest.org/en/stable/](https://docs.pytest.org/en/stable/)
 * Lakshmanan, V., Robinson, S., & Munn, M. (2020). *Machine learning design patterns: Solutions to common challenges in data preparation, model building, and MLOps*. O'Reilly Media.
 * MiBici. (2026). *Datos abiertos del sistema de bicicletas públicas MiBici* [Conjunto de datos]. Agencia Metropolitana de Servicios de Infraestructura para la Movilidad del Área Metropolitana de Guadalajara. [https://mibici.net/es/datos-abiertos/](https://mibici.net/es/datos-abiertos/)
+* Mitchell, M., Wu, S., Zaldivar, A., Barnes, P., Vasserman, L., Hutchinson, B., Spitzer, E., Raji, I. D., & Gebru, T. (2019). Model cards for model reporting. En *Proceedings of the Conference on Fairness, Accountability, and Transparency (FAT* '19)* (pp. 220–229). Association for Computing Machinery. [https://doi.org/10.1145/3287560.3287596](https://doi.org/10.1145/3287560.3287596)
 * MLflow. (2026). *MLflow documentation: MLflow Tracking, Model Registry and Deployment*. [https://mlflow.org/docs/latest/ml/model-registry/](https://mlflow.org/docs/latest/ml/model-registry/)
 * Ong, S., & Driessen, V. (2026). *RQ: Simple job queues for Python* (Versión 3.0.0). [https://python-rq.org/](https://python-rq.org/)
 * Open Container Initiative. (2024). *OCI Image Format Specification*. Linux Foundation. [https://github.com/opencontainers/image-spec](https://github.com/opencontainers/image-spec)
